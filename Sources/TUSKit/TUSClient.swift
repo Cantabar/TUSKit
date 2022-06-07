@@ -308,6 +308,11 @@ public final class TUSClient {
     public func scheduleBackgroundTasks() {
         backgroundClient.scheduleBackgroundTasks()
     }
+    
+    @available(iOS 13.0, *)
+    public func getPendingTasks(handler: @escaping ([BGTaskRequest]) -> Void) {
+        backgroundClient.getPendingTasks(handler: handler)
+    }
 #endif
     
     /// Return the id's all failed uploads. Good to check after launch or after background processing for example, to handle them at a later stage.
