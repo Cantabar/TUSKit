@@ -76,10 +76,10 @@ final class TUSBackground {
 
     func getPendingTasks(handler: @escaping ([BGTaskRequest]) -> Void) {
       #if targetEnvironment(simulator)
-        print("TUSClient background tasks aren't supported on simulator (iOS limitation). Ignoring.")
-        #else
-        BGTaskScheduler.shared.getPendingTaskRequests(completionHandler: handler)
-        #endif
+      print("TUSClient background tasks aren't supported on simulator (iOS limitation). Ignoring.")
+      #else
+      BGTaskScheduler.shared.getPendingTaskRequests(completionHandler: handler)
+      #endif
     }
     
     func scheduleBackgroundTasks() {
