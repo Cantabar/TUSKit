@@ -8,6 +8,12 @@
 import Foundation
 import BackgroundTasks
 
+/// Implement this delegate to receive errors from the BGTaskScheduler
+public protocol TUSBackgroundDelegate: AnyObject {
+    /// An upload failed. Returns an error. Could either be a TUSClientError or a networking related error.
+    func scheduleSingleTaskFailed(error: Error)
+}
+
 #if os(iOS)
 @available(iOS 13.0, *)
 /// Perform background uploading
@@ -21,10 +27,13 @@ final class TUSBackground {
     private let files: Files
     private let chunkSize: Int
     
-    init(api: TUSAPI, files: Files, chunkSize: Int) {
+    public weak var delegate: TUSBackgroundDelegate?
+    
+    init(api: TUSAPI, files: Files, chunkSize: Int, delegate: TUSBackgroundDelegate) {
         self.api = api
         self.files = files
         self.chunkSize = chunkSize
+        self.delegate = delegate
         
         registerForBackgroundTasks()
     }
@@ -92,6 +101,7 @@ final class TUSBackground {
         do {
             try BGTaskScheduler.shared.submit(request)
         } catch {
+            self.delegate?.scheduleSingleTaskFailed(error: error)
             print("TUSClient could not schedule background task \(error)")
         }
     }

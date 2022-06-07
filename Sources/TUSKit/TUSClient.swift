@@ -19,6 +19,8 @@ public protocol TUSClientDelegate: AnyObject {
     func didStartUpload(id: UUID, context: [String: String]?, client: TUSClient)
     /// `TUSClient` just finished an upload, returns the URL of the uploaded file.
     func didFinishUpload(id: UUID, url: URL, context: [String: String]?, client: TUSClient)
+    /// TUSBackgroundClient received an error from `BGTaskScheduler.scheduleSingleTask`
+    func scheduleSingleTaskFailed(error: Error)
     /// An upload failed. Returns an error. Could either be a TUSClientError or a networking related error.
     func uploadFailed(id: UUID, error: Error, context: [String: String]?, client: TUSClient)
     
@@ -81,7 +83,7 @@ public final class TUSClient {
 #if os(iOS)
     @available(iOS 13.0, *)
     private lazy var backgroundClient: TUSBackground = {
-        return TUSBackground(api: api, files: files, chunkSize: chunkSize)
+        return TUSBackground(api: api, files: files, chunkSize: chunkSize, delegate: self)
     }()
 #endif
     
@@ -608,6 +610,13 @@ extension TUSClient: ProgressDelegate {
         /* } */
 
         /* delegate?.totalProgress(bytesUploaded: totalBytesUploaded, totalBytes: totalSize, client: self) */
+    }
+}
+
+extension TUSClient: TUSBackgroundDelegate {
+    
+    public func scheduleSingleTaskFailed(error: Error) {
+        self.delegate?.scheduleSingleTaskFailed(error: error)
     }
 }
 
