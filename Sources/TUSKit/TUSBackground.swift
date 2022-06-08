@@ -65,26 +65,29 @@ final class TUSBackground {
 #endif
     }
     
-    func scheduleBackgroundTasks() {
+    func scheduleBackgroundTasks() -> Bool {
         #if targetEnvironment(simulator)
         print("Background tasks aren't supported on simulator (iOS limitation). Ignoring.")
+        return false
         #else
-        scheduleSingleTask()
+        return scheduleSingleTask()
         #endif
     }
     
     /// Try and schedule another task. But, might not schedule a task if none are available.
-    private func scheduleSingleTask() {
+    private func scheduleSingleTask() -> Bool {
         guard firstTask() != nil else {
-            return
+            return false
         }
         
         let request = BGProcessingTaskRequest(identifier: type(of: self).identifier)
         request.requiresNetworkConnectivity = true
         do {
             try BGTaskScheduler.shared.submit(request)
+            return true
         } catch {
             print("Could not schedule background task \(error)")
+            return false
         }
         
     }

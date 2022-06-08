@@ -305,8 +305,8 @@ public final class TUSClient {
     /// Note that the OS decides when uploading begins.
 #if os(iOS)
     @available(iOS 13.0, *)
-    public func scheduleBackgroundTasks() {
-        backgroundClient.scheduleBackgroundTasks()
+    public func scheduleBackgroundTasks() -> Bool {
+        return backgroundClient.scheduleBackgroundTasks()
     }
 #endif
     
