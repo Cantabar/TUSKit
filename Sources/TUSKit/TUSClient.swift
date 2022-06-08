@@ -279,24 +279,24 @@ public final class TUSClient {
     /// Retry a failed upload. Note that `TUSClient` already has an internal retry mechanic before it reports an upload as failure.
     /// If however, you like to retry an upload at a later stage, you can use this method to trigger the upload again.
     /// - Parameter id: The id of an upload. Received when starting an upload, or via the `TUSClientDelegate`.
-    /// - Returns: True if the id is found. False if it's not found
-    /// - Throws: `TUSClientError.couldNotRetryUpload` if it can't load an the file. Or file related errors.
+    /// - Returns: a tuple with the first value being true if successfully retried or false if not. If false then the reason why it failed will be the second value in the tuple.
     @discardableResult
-    public func retry(id: UUID) throws -> Bool {
+    public func retry(id: UUID) throws -> (didRetry: Bool, reason: String) {
         do {
-            guard uploads[id] == nil else { return false }
+            guard uploads[id] == nil else { return (false, "Already scheduled") }
             guard let metaData = try files.findMetadata(id: id) else {
-                return false
+                return (false, "Could not find metadata")
             }
             
             metaData.errorCount = 0
             
             try scheduleTask(for: metaData)
-            return true
+            return (true, "")
         } catch let error as TUSClientError {
             throw error
         } catch {
-            throw TUSClientError.couldNotRetryUpload
+            print(error)
+            return (false, error.localizedDescription)
         }
     }
     
