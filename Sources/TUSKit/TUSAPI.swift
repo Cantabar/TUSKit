@@ -219,7 +219,7 @@ final class TUSAPI {
         }
         
         // When doing a POST or CreateTask we dont' want to pin to a server, let the load balancer tell us which server to pin to
-        if((awsAlbCookie) != nil && method.rawValue !== HTTPMethod.post) {
+        if((awsAlbCookie) != nil && method.rawValue != HTTPMethod.post.rawValue) {
             let cookieHeaders = HTTPCookie.requestHeaderFields(with: [awsAlbCookie!])
             for header in cookieHeaders {
                 request.addValue(header.value, forHTTPHeaderField: header.key)
