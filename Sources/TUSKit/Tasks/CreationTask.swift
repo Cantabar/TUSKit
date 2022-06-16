@@ -50,7 +50,7 @@ final class CreationTask: IdentifiableTask {
             do {
                 let urlAndCookie = try result.get()
                 metaData.remoteDestination = urlAndCookie.0
-                metaData.awsAlbCookie = urlAndCookie.1
+                metaData.awsAlbCookies = urlAndCookie.1
                 try files.encodeAndStore(metaData: metaData)
                 let task: UploadDataTask
                 if let chunkSize = chunkSize {
