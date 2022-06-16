@@ -93,7 +93,6 @@ final class UploadDataTask: NSObject, IdentifiableTask {
         let task = api.upload(data: dataToUpload, range: range, location: remoteDestination, metaData: self.metaData) { [weak self] result in
             self?.queue.async {
                 guard let self = self else { return }
-                // Getting rid of needing .self inside this closure
                 let metaData = self.metaData
                 let files = self.files
                 let range = self.range
@@ -124,10 +123,16 @@ final class UploadDataTask: NSObject, IdentifiableTask {
                         return
                     }
                     
-                    let nextRange: Range<Int>?
+                    var nextRange: Range<Int>? = nil
                     if let range = range {
                         let chunkSize = range.count
-                        nextRange = receivedOffset..<min((receivedOffset + chunkSize), metaData.size)
+                        let upperBound = min((receivedOffset + chunkSize), metaData.size)
+                        if(receivedOffset > upperBound) {
+                            print("Received offset: \(receivedOffset)\nchunkSize: \(chunkSize)\nmetaData.size: \(metaData.size)")
+                            throw TUSClientError.receivedUnexpectedOffset
+                        } else {
+                            nextRange = receivedOffset..<min((receivedOffset + chunkSize), metaData.size)
+                        }
                     } else {
                         nextRange = nil
                     }

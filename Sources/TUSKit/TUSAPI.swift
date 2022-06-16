@@ -1,6 +1,6 @@
 //
 //  TUSAPI.swift
-//  
+//
 //
 //  Created by Tjeerd in ‘t Veen on 13/09/2021.
 //
@@ -45,8 +45,8 @@ final class TUSAPI {
     ///   - headers: Request headers.
     ///   - completion: A completion giving us the `Status` of an upload.
     @discardableResult
-    func status(remoteDestination: URL, headers: [String: String]?, completion: @escaping (Result<Status, TUSAPIError>) -> Void) -> URLSessionDataTask {
-        let request = makeRequest(url: remoteDestination, method: .head, headers: headers ?? [:])
+    func status(remoteDestination: URL, headers: [String: String]?, awsAlbCookie: HTTPCookie?, completion: @escaping (Result<Status, TUSAPIError>) -> Void) -> URLSessionDataTask {
+        let request = makeRequest(url: remoteDestination, method: .head, headers: headers ?? [:], awsAlbCookie: awsAlbCookie)
         let task = session.dataTask(request: request) { result in
             processResult(completion: completion) {
                 let (_, response) =  try result.get()
@@ -71,25 +71,43 @@ final class TUSAPI {
     /// Use file metadata to enrich the information so the server knows what filetype something is.
     /// - Parameters:
     ///   - metaData: The file metadata.
-    ///   - completion: Completes with a result that gives a URL to upload to.
+    ///   - completion: Completes with a result that gives a URL to upload to and the AWS ALB cookie if it exists so we can pin the file upload to a server
     @discardableResult
-    func create(metaData: UploadMetadata, completion: @escaping (Result<URL, TUSAPIError>) -> Void) -> URLSessionDataTask {
+    func create(metaData: UploadMetadata, completion: @escaping (Result<(URL, HTTPCookie?), TUSAPIError>) -> Void) -> URLSessionDataTask {
         let request = makeCreateRequest(metaData: metaData)
         let task = session.dataTask(request: request) { (result: Result<(Data?, HTTPURLResponse), Error>) in
             processResult(completion: completion) {
                 let (_, response) = try result.get()
-
+               
+                let awsAlbCookie = self.findAwsAlbCookie(response: response)
+                print(awsAlbCookie)
                 guard let location = response.allHeaderFields[caseInsensitive: "location"] as? String,
-                      let locationURL = URL(string: location, relativeTo: metaData.uploadURL) else {
+                    let locationURL = URL(string: location, relativeTo: metaData.uploadURL) else {
                     throw TUSAPIError.couldNotRetrieveLocation
                 }
 
-                return locationURL
+                return (url: locationURL, cookie: awsAlbCookie)
             }
         }
         
         task.resume()
         return task
+    }
+    
+    /// Load balanced environment must save the AWSALB cookie from the CreateTask and resend it on all requests to stick to that server
+    func findAwsAlbCookie(response: HTTPURLResponse) -> HTTPCookie? {
+        if let fields = response.allHeaderFields as? [String: String] {
+            if let url = response.url {
+                let cookies = HTTPCookie.cookies(withResponseHeaderFields: fields, for: url)
+                var awsAlbCookie: HTTPCookie? = nil
+                for cookie in cookies {
+                    if(cookie.name == "AWSALBTG") {
+                        return cookie
+                    }
+                }
+            }
+        }
+        return nil
     }
     
     func makeCreateRequest(metaData: UploadMetadata) -> URLRequest {
@@ -136,7 +154,7 @@ final class TUSAPI {
         /// Attach all headers from customHeader property
         let headers = defaultHeaders.merging(metaData.customHeaders ?? [:]) { _, new in new }
         
-        return makeRequest(url: metaData.uploadURL, method: .post, headers: headers)
+        return makeRequest(url: metaData.uploadURL, method: .post, headers: headers, awsAlbCookie: metaData.awsAlbCookie)
     }
     
     /// Uploads data
@@ -167,7 +185,7 @@ final class TUSAPI {
         /// Attach all headers from customHeader property
         let headersWithCustom = headers.merging(metaData.customHeaders ?? [:]) { _, new in new }
         
-        let request = makeRequest(url: location, method: .patch, headers: headersWithCustom)
+        let request = makeRequest(url: location, method: .patch, headers: headersWithCustom, awsAlbCookie: metaData.awsAlbCookie)
         
         let task = session.uploadTask(request: request, data: data) { result in
             processResult(completion: completion) {
@@ -192,12 +210,20 @@ final class TUSAPI {
     ///   - method: The HTTP method of a request.
     ///   - headers: The headers to add to the request.
     /// - Returns: A new URLRequest to use in any TUS API call.
-    private func makeRequest(url: URL, method: HTTPMethod, headers: [String: String]) -> URLRequest {
+    private func makeRequest(url: URL, method: HTTPMethod, headers: [String: String], awsAlbCookie: HTTPCookie?) -> URLRequest {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 60)
         request.httpMethod = method.rawValue
         request.addValue("1.0.0", forHTTPHeaderField: "TUS-Resumable")
         for header in headers {
             request.addValue(header.value, forHTTPHeaderField: header.key)
+        }
+        
+        // When doing a POST or CreateTask we dont' want to pin to a server, let the load balancer tell us which server to pin to
+        if((awsAlbCookie) != nil && method.rawValue !== HTTPMethod.post) {
+            let cookieHeaders = HTTPCookie.requestHeaderFields(with: [awsAlbCookie!])
+            for header in cookieHeaders {
+                request.addValue(header.value, forHTTPHeaderField: header.key)
+            }
         }
         return request
     }
@@ -243,4 +269,34 @@ extension Dictionary {
         }
         return nil
     }
+}
+
+extension HTTPCookie {
+
+    fileprivate func save(cookieProperties: [HTTPCookiePropertyKey : Any]) -> Data {
+        let data = NSKeyedArchiver.archivedData(withRootObject: cookieProperties)
+        return data
+    }
+
+    static fileprivate func loadCookieProperties(from data: Data) -> [HTTPCookiePropertyKey : Any]? {
+        let unarchivedDictionary = NSKeyedUnarchiver.unarchiveObject(with: data)
+        return unarchivedDictionary as? [HTTPCookiePropertyKey : Any]
+    }
+
+    static func loadCookie(using data: Data?) -> HTTPCookie? {
+        guard let data = data,
+            let properties = loadCookieProperties(from: data) else {
+                return nil
+        }
+        return HTTPCookie(properties: properties)
+
+    }
+
+    func archive() -> Data? {
+        guard let properties = self.properties else {
+            return nil
+        }
+        return save(cookieProperties: properties)
+    }
+
 }
