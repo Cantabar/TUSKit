@@ -93,10 +93,11 @@ public final class TUSClient {
     ///   You can also pass an absolute path, e.g. "file://uploads/TUS"
     ///   - session: A URLSession you'd like to use. Will default to `URLSession.shared`.
     ///   - chunkSize: The amount of bytes the data to upload will be chunked by. Defaults to 512 kB.
+    ///   - maxConcurrentUploads: On HTTP 2 multiplexing allows for many concurrent uploads on 1 connection
     /// - Throws: File related errors when it can't make a directory at the designated path.
-    public init(server: URL, sessionIdentifier: String, storageDirectory: URL? = nil, session: URLSession = URLSession.shared, chunkSize: Int = 500 * 1024) throws {
+    public init(server: URL, sessionIdentifier: String, storageDirectory: URL? = nil, session: URLSession = URLSession.shared, chunkSize: Int = 500 * 1024, maxConcurrentUploads: Int = 100) throws {
         self.sessionIdentifier = sessionIdentifier
-        self.api = TUSAPI(session: session)
+        self.api = TUSAPI(session: session, maxConcurrentUploads: maxConcurrentUploads)
         self.files = try Files(storageDirectory: storageDirectory)
         self.serverURL = server
         self.chunkSize = chunkSize
