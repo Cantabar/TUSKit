@@ -33,9 +33,11 @@ final class TUSAPI {
     }
     
     let session: URLSession
+    let uploadTaskSemaphore: DispatchSemaphore
     
-    init(session: URLSession) {
+    init(session: URLSession, maxConcurrentUploads: Int) {
         self.session = session
+        self.uploadTaskSemaphore = DispatchSemaphore(value: maxConcurrentUploads)
     }
     
     /// Fetch the status of an upload if an upload is not finished (e.g. interrupted).
@@ -184,18 +186,20 @@ final class TUSAPI {
         /// Attach all headers from customHeader property
         let headersWithCustom = headers.merging(metaData.customHeaders ?? [:]) { _, new in new }
         
-        let request = makeRequest(url: location, method: .patch, headers: headersWithCustom, awsAlbCookies: metaData.awsAlbCookies)
+        let request = makeRequest(url: location, method: HTTPMethod.patch, headers: headersWithCustom, awsAlbCookies: metaData.awsAlbCookies)
         
-        let task = session.uploadTask(request: request, data: data) { result in
-            processResult(completion: completion) {
+        uploadTaskSemaphore.wait()
+        let task = session.uploadTask(request: request, data: data) { [weak self] result in
+            processResult(completion: completion){
                 let (_, response) = try result.get()
                 
                 guard let offsetStr = response.allHeaderFields[caseInsensitive: "upload-offset"] as? String,
                       let offset = Int(offsetStr) else {
                     throw TUSAPIError.couldNotRetrieveOffset
                 }
-                return offset
                 
+                self?.uploadTaskSemaphore.signal()
+                return offset
             }
         }
         task.resume()
