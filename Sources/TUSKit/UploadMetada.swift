@@ -19,6 +19,7 @@ final class UploadMetadata: Codable {
         case uploadURL
         case filePath
         case remoteDestination
+        case awsAlbCookies
         case version
         case context
         case uploadedRange
@@ -70,6 +71,19 @@ final class UploadMetadata: Codable {
         } set {
             queue.async {
                 self._remoteDestination = newValue
+            }
+        }
+    }
+    
+    private var _awsAlbCookies: [Data]?
+    var awsAlbCookies: [HTTPCookie]? {
+        get {
+            queue.sync {
+                _awsAlbCookies?.compactMap{ cookieData in HTTPCookie.loadCookie(using: cookieData) }
+            }
+        } set {
+            queue.async {
+                self._awsAlbCookies = newValue?.compactMap{ cookie in cookie.archive() }
             }
         }
     }
@@ -130,6 +144,7 @@ final class UploadMetadata: Codable {
         uploadURL = try values.decode(URL.self, forKey: .uploadURL)
         _filePath = try values.decode(URL.self, forKey: .filePath)
         _remoteDestination = try values.decode(URL?.self, forKey: .remoteDestination)
+        _awsAlbCookies = try values.decode([Data].self, forKey: .awsAlbCookies)
         version = try values.decode(Int.self, forKey: .version)
         context = try values.decode([String: String]?.self, forKey: .context)
         _uploadedRange = try values.decode(Range<Int>?.self, forKey: .uploadedRange)
@@ -144,6 +159,7 @@ final class UploadMetadata: Codable {
         try container.encode(_id, forKey: .id)
         try container.encode(uploadURL, forKey: .uploadURL)
         try container.encode(_remoteDestination, forKey: .remoteDestination)
+        try container.encode(_awsAlbCookies, forKey: .awsAlbCookies)
         try container.encode(_filePath, forKey: .filePath)
         try container.encode(version, forKey: .version)
         try container.encode(context, forKey: .context)
