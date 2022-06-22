@@ -34,10 +34,15 @@ final class TUSAPI {
     
     let session: URLSession
     let uploadTaskSemaphore: DispatchSemaphore
-    
+    private (set) var uploadTaskSemaphoreAvailable: Int
+    private var maxConcurrentUploads: Int
+
+
     init(session: URLSession, maxConcurrentUploads: Int) {
         self.session = session
         self.uploadTaskSemaphore = DispatchSemaphore(value: maxConcurrentUploads)
+        self.uploadTaskSemaphoreAvailable = maxConcurrentUploads
+        self.maxConcurrentUploads = maxConcurrentUploads
     }
     
     /// Fetch the status of an upload if an upload is not finished (e.g. interrupted).
@@ -109,6 +114,14 @@ final class TUSAPI {
             }
         }
         return awsAlbCookies
+    }
+
+    /// Returns maximum concurrent requests and current in use (locked by semaphore)
+    func getInfoForUploads() -> (maxConcurrentUploads: Int, currentConcurrentRequests: Int) {
+      return (
+        self.maxConcurrentUploads,
+        self.maxConcurrentUploads - self.uploadTaskSemaphoreAvailable
+      )
     }
     
     func makeCreateRequest(metaData: UploadMetadata) -> URLRequest {
@@ -189,6 +202,7 @@ final class TUSAPI {
         let request = makeRequest(url: location, method: HTTPMethod.patch, headers: headersWithCustom, awsAlbCookies: metaData.awsAlbCookies)
         
         uploadTaskSemaphore.wait()
+        uploadTaskSemaphoreAvailable -= 1
         let task = session.uploadTask(request: request, data: data) { [weak self] result in
             processResult(completion: completion){
                 let (_, response) = try result.get()
@@ -199,6 +213,7 @@ final class TUSAPI {
                 }
                 
                 self?.uploadTaskSemaphore.signal()
+                self?.uploadTaskSemaphoreAvailable += 1
                 return offset
             }
         }
