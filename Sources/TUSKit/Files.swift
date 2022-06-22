@@ -211,6 +211,18 @@ final class Files {
             try FileManager.default.removeItem(at: storageDirectory)
         }
     }
-    
+
+    func getFilesToUploadCount() -> Int {
+        do {
+          let directoryContents = try FileManager.default.contentsOfDirectory(at: storageDirectory, includingPropertiesForKeys: nil)
+          
+          // if you want to filter the directory contents you can do like this:
+          let files = directoryContents.filter{ $0.pathExtension == "plist" }
+          return files.count
+        }
+        catch {
+            return 0
+        }
+    }
 }
 

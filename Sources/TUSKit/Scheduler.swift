@@ -96,6 +96,13 @@ final class Scheduler {
         }
     }
 
+    func getInfoForTasks() -> (pendingTasksCount: Int, runningTasksCount: Int) {
+      return (
+        self.pendingTasks.count, 
+        self.runningTasks.count
+      )
+    }
+
     private func checkProcessNextTask() {
         queue.async { [weak self] in
             guard let self = self else { return }
