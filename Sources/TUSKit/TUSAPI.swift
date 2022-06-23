@@ -212,8 +212,10 @@ final class TUSAPI {
                     throw TUSAPIError.couldNotRetrieveOffset
                 }
                 
-                self?.uploadTaskSemaphore.signal()
-                self?.uploadTaskSemaphoreAvailable += 1
+                defer {
+                  self?.uploadTaskSemaphore.signal()
+                  self?.uploadTaskSemaphoreAvailable += 1
+                }
                 return offset
             }
         }

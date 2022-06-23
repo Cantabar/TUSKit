@@ -202,7 +202,7 @@ public final class TUSClient {
         do {
             let id = UUID()
             let destinationFilePath = try files.copy(from: filePath, id: id)
-            try scheduleTask(for: destinationFilePath, id: id, uploadURL: uploadURL, customHeaders: customHeaders, context: context, startTask: startNow)
+            try scheduleTask(for: destinationFilePath, id: id, uploadURL: uploadURL, customHeaders: customHeaders, context: context, startNow: startNow)
             return id
         } catch let error as TUSClientError {
             throw error
@@ -370,7 +370,7 @@ public final class TUSClient {
     
     /// Upload a file at the URL. Will not copy the path.
     /// - Parameter storedFilePath: The path where the file is stored for processing.
-    private func scheduleTask(for storedFilePath: URL, id: UUID, uploadURL: URL?, customHeaders: [String: String], context: [String: String]?, startTask: Bool = true) throws {
+    private func scheduleTask(for storedFilePath: URL, id: UUID, uploadURL: URL?, customHeaders: [String: String], context: [String: String]?, startNow: Bool = true) throws {
         let filePath = storedFilePath
         
         func getSize() throws -> Int {
@@ -401,11 +401,11 @@ public final class TUSClient {
         }
         
         try store(metaData: metaData)
-        trackUpload()
        
         delegate?.didInitializeUpload(id: id, context: context, client: self);
        
-        if (startTask) {
+        if (startNow) {
+          trackUpload()
           scheduler.addTask(task: task)
         }
     }
@@ -446,7 +446,7 @@ public final class TUSClient {
                 // Only allow specified uploads and errors are below an amount
                 metaData.errorCount <= retryCount && !metaData.isFinished && taskIds.contains( metaData.id )
             })
-           
+            
             for metaData in metaDataItems {
                 try scheduleTask(for: metaData)
             }

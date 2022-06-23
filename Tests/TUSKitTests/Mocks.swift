@@ -11,7 +11,8 @@ import XCTest
 
 /// TUSClientDelegate to support testing
 final class TUSMockDelegate: TUSClientDelegate {
-    
+  
+    var initializedUploads = [UUID]()
     var startedUploads = [UUID]()
     var finishedUploads = [(UUID, URL)]()
     var failedUploads = [(UUID, Error)]()
@@ -23,11 +24,20 @@ final class TUSMockDelegate: TUSClientDelegate {
     
     var activityCount: Int { finishedUploads.count + startedUploads.count + failedUploads.count + fileErrors.count }
     
+    var initializedUploadExpectation: XCTestExpectation?
     var finishUploadExpectation: XCTestExpectation?
     var startUploadExpectation: XCTestExpectation?
     var fileErrorExpectation: XCTestExpectation?
     var uploadFailedExpectation: XCTestExpectation?
 
+    func didInitializeUpload(id: UUID, context: [String : String]?, client: TUSClient) {
+        initializedUploads.append(id)
+        initializedUploadExpectation?.fulfill()
+        if let context = context {
+            receivedContexts.append(context)
+        }
+    }
+    
     func didStartUpload(id: UUID, context: [String : String]?, client: TUSClient) {
         startedUploads.append(id)
         startUploadExpectation?.fulfill()
