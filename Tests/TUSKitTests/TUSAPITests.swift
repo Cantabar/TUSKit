@@ -22,7 +22,7 @@ final class TUSAPITests: XCTestCase {
         configuration.protocolClasses = [MockURLProtocol.self]
         let session = URLSession.init(configuration: configuration)
         uploadURL = URL(string: "www.tus.io")!
-        api = TUSAPI(session: session)
+        api = TUSAPI(session: session, maxConcurrentUploads: 5)
     }
     
     override func tearDown() {
@@ -45,7 +45,7 @@ final class TUSAPITests: XCTestCase {
                                               uploadURL: URL(string: "io.tus")!,
                                               size: length)
         
-        api.status(remoteDestination: remoteFileURL, headers:  metaData.customHeaders, completion: { result in
+        api.status(remoteDestination: remoteFileURL, headers:  metaData.customHeaders, awsAlbCookies: nil, completion: { result in
             do {
                 let values = try result.get()
                 XCTAssertEqual(length, values.length)
@@ -73,8 +73,11 @@ final class TUSAPITests: XCTestCase {
                                       size: size)
         api.create(metaData: metaData) { result in
             do {
-                let url = try result.get()
+                let urlAndCookie = try result.get()
+                let url = urlAndCookie.0
+                let cookie = urlAndCookie.1
                 XCTAssertEqual(url, remoteFileURL)
+                XCTAssertEqual(cookie, [])
                 creationExpectation.fulfill()
             } catch {
                 XCTFail("Expected to retrieve a URL for this test")
@@ -112,7 +115,8 @@ final class TUSAPITests: XCTestCase {
                                       size: size)
         api.create(metaData: metaData) { result in
             do {
-                let url = try result.get()
+                let urlAndCookie = try result.get()
+                let url = urlAndCookie.0
                 XCTAssertEqual(url.absoluteURL, expectedURL)
                 creationExpectation.fulfill()
             } catch {

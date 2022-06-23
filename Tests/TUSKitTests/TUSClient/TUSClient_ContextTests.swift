@@ -49,7 +49,7 @@ final class TUSClient_ContextTests: XCTestCase {
         
         waitForUploadsToFinish()
         
-        XCTAssertEqual(tusDelegate.receivedContexts, Array(repeatElement(expectedContext, count: 2)),  "Expected the context to be returned once an upload is finished")
+        XCTAssertEqual(tusDelegate.receivedContexts, Array(repeatElement(expectedContext, count: 3)),  "Expected the context to be returned once an upload is finished")
     }
     
     func testContextIsReturnedAfterUploadingMultipleFiles() throws {
@@ -60,7 +60,7 @@ final class TUSClient_ContextTests: XCTestCase {
         waitForUploadsToFinish(2)
         
         // Two contexts for start, two for failure
-        XCTAssertEqual(tusDelegate.receivedContexts, Array(repeatElement(expectedContext, count: 4)), "Expected the context to be returned once an upload is finished")
+        XCTAssertEqual(tusDelegate.receivedContexts, Array(repeatElement(expectedContext, count: 6)), "Expected the context to be returned once an upload is finished")
     }
     
     func testContextIsReturnedAfterUploadingMultipleFilePaths() throws {
@@ -71,7 +71,7 @@ final class TUSClient_ContextTests: XCTestCase {
         waitForUploadsToFinish(2)
         
         // Four contexts for start, four for failure
-        XCTAssertEqual(tusDelegate.receivedContexts, Array(repeatElement(expectedContext, count: 4)), "Expected the context to be returned once an upload is finished")
+        XCTAssertEqual(tusDelegate.receivedContexts, Array(repeatElement(expectedContext, count: 6)), "Expected the context to be returned once an upload is finished")
     }
     
     func testContextIsGivenOnStart() throws {
@@ -109,7 +109,7 @@ final class TUSClient_ContextTests: XCTestCase {
         let uploadExpectation = expectation(description: "Waiting for upload to finished")
         uploadExpectation.expectedFulfillmentCount = amount
         tusDelegate.finishUploadExpectation = uploadExpectation
-        waitForExpectations(timeout: 6, handler: nil)
+        waitForExpectations(timeout: 10, handler: nil)
     }
     
     private func waitForUploadsToFail(_ amount: Int = 1) {

@@ -46,7 +46,7 @@ final class TUSClient_RetryTests: XCTestCase {
         let fileAmount = 2
         try upload(data: data, amount: fileAmount, shouldSucceed: false)
         
-        let expectedRetryCount = 2
+        let expectedRetryCount = 9
         XCTAssertEqual(fileAmount * (1 + expectedRetryCount), MockURLProtocol.receivedRequests.count)
     }
     
