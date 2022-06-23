@@ -144,7 +144,7 @@ final class UploadMetadata: Codable {
         uploadURL = try values.decode(URL.self, forKey: .uploadURL)
         _filePath = try values.decode(URL.self, forKey: .filePath)
         _remoteDestination = try values.decode(URL?.self, forKey: .remoteDestination)
-        _awsAlbCookies = try values.decode([Data].self, forKey: .awsAlbCookies)
+        // _awsAlbCookies = try values.decode([Data].self, forKey: .awsAlbCookies)
         version = try values.decode(Int.self, forKey: .version)
         context = try values.decode([String: String]?.self, forKey: .context)
         _uploadedRange = try values.decode(Range<Int>?.self, forKey: .uploadedRange)
