@@ -155,24 +155,24 @@ public final class TUSClient {
     /// - api's maximum / current concurrent running uploads
     /// - current running uploads
     /// - files to upload
-    public func getInfo() -> (pendingTasksCount: Int, runningTasksCount: Int,
-                              maxConcurrentUploads: Int, currentConcurrentUploads: Int,
-                              runningUploadsCount: Int, filesToUploadCount: Int) {
-      let schedulerInfo = scheduler.getInfoForTasks()
-      let uploadInfo = api.getInfoForUploads()
-      let runningUploads = uploads.compactMap{ upload in
-        return upload
-      }.count
-      let filesToUpload = files.getFilesToUploadCount()
-
-      return (
-        pendingTasksCount: schedulerInfo.0,
-        runningTasksCount: schedulerInfo.1,
-        maxConcurrentUploads: uploadInfo.0,
-        currentConcurrentUploads: uploadInfo.1,
-        runningUploadsCount: runningUploads,
-        filesToUploadCount: filesToUpload
-      )
+    public func getInfo() -> [String:Int] {
+        let schedulerInfo = scheduler.getInfoForTasks()
+        let uploadInfo = api.getInfoForUploads()
+        let runningUploads = uploads.compactMap{ upload in
+            return upload
+        }.count
+        let filesToUpload = files.getFilesToUploadCount()
+        
+        let infoResult: [String:Int] = [
+            "pendingTasksCount": schedulerInfo.0,
+            "runningTasksCount": schedulerInfo.1,
+            "maxConcurrentUploads": uploadInfo.0,
+            "currentConcurrentUploads": uploadInfo.1,
+            "runningUploadsCount": runningUploads,
+            "filesToUploadCount": filesToUpload
+        ]
+        
+        return infoResult
     }
     
     /// This will cancel all running uploads and clear the local cache.
