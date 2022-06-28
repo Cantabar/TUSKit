@@ -216,7 +216,7 @@ final class TUSAPI {
     ///   - headers: The headers to add to the request.
     /// - Returns: A new URLRequest to use in any TUS API call.
     private func makeRequest(url: URL, method: HTTPMethod, headers: [String: String]) -> URLRequest {
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 30)
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 60)
         request.httpMethod = method.rawValue
         request.addValue("1.0.0", forHTTPHeaderField: "TUS-Resumable")
         for header in headers {
