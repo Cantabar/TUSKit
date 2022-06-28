@@ -48,9 +48,7 @@ final class CreationTask: IdentifiableTask {
             let progressDelegate = self.progressDelegate
 
             do {
-                let urlAndCookie = try result.get()
-                metaData.remoteDestination = urlAndCookie.0
-                metaData.awsAlbCookies = urlAndCookie.1
+                metaData.remoteDestination = try result.get()
                 try files.encodeAndStore(metaData: metaData)
                 let task: UploadDataTask
                 if let chunkSize = chunkSize {
