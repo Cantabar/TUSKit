@@ -20,7 +20,6 @@ final class StatusTask: IdentifiableTask {
     let api: TUSAPI
     let files: Files
     let remoteDestination: URL
-    let awsAlbCookies: [HTTPCookie]?
     let metaData: UploadMetadata
     let chunkSize: Int
     private var didCancel: Bool = false
@@ -30,7 +29,6 @@ final class StatusTask: IdentifiableTask {
         self.api = api
         self.remoteDestination = remoteDestination
         self.metaData = metaData
-        self.awsAlbCookies = metaData.awsAlbCookies
         self.files = files
         self.chunkSize = chunkSize
     }
@@ -38,7 +36,7 @@ final class StatusTask: IdentifiableTask {
     func run(completed: @escaping TaskCompletion) {
         // Improvement: On failure, try uploading from the start. Create creationtask.
         if didCancel { return }
-        sessionTask = api.status(remoteDestination: self.remoteDestination, headers: self.metaData.customHeaders, awsAlbCookies: self.awsAlbCookies) { [weak self] result in
+        sessionTask = api.status(remoteDestination: self.remoteDestination, headers: self.metaData.customHeaders) { [weak self] result in
             guard let self = self else { return }
             let metaData = self.metaData
             let files = self.files
