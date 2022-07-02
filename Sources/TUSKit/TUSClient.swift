@@ -65,18 +65,19 @@ public final class TUSClient {
     // MARK: - Private Properties
     
     /// How often to try an upload if it fails. A retryCount of 2 means 3 total uploads max. (1 initial upload, and on repeated failure, 2 more retries.)
-    private let retryCount = 9
+    private let retryCount = 3
     /// How long to delay the retry. This is intended to allow the server time to realize the connection has broken. Expected time in milliseconds.
     private let retryDelay = 500
     
     private let files: Files
     private var didStopAndCancel = false
     private let serverURL: URL
-    private let scheduler = Scheduler()
+    private let scheduler: Scheduler
     private let api: TUSAPI
     private let chunkSize: Int
     /// Keep track of uploads and their id's
     private var uploads = [UUID: UploadMetadata]()
+    private let maxConcurrentUploads: Int
     
 #if os(iOS)
     @available(iOS 13.0, *)
@@ -97,10 +98,12 @@ public final class TUSClient {
     /// - Throws: File related errors when it can't make a directory at the designated path.
     public init(server: URL, sessionIdentifier: String, storageDirectory: URL? = nil, session: URLSession = URLSession.shared, chunkSize: Int = 500 * 1024, maxConcurrentUploads: Int = 100) throws {
         self.sessionIdentifier = sessionIdentifier
+        self.scheduler = Scheduler(maxConcurrentTasks: maxConcurrentUploads)
         self.api = TUSAPI(session: session, maxConcurrentUploads: maxConcurrentUploads)
         self.files = try Files(storageDirectory: storageDirectory)
         self.serverURL = server
         self.chunkSize = chunkSize
+        self.maxConcurrentUploads = maxConcurrentUploads
         
         scheduler.delegate = self
         removeFinishedUploads()
@@ -114,6 +117,7 @@ public final class TUSClient {
     public func start() -> [(UUID, [String: String]?)] {
         didStopAndCancel = false
         let metaData = scheduleStoredTasks()
+        
         return metaData.map { metaData in
             (metaData.id, metaData.context)
         }
@@ -166,6 +170,7 @@ public final class TUSClient {
         let infoResult: [String:Int] = [
             "pendingTasksCount": schedulerInfo.0,
             "runningTasksCount": schedulerInfo.1,
+            "maxConcurrentTasks": schedulerInfo.maxConcurrentTasks,
             "maxConcurrentUploads": uploadInfo.0,
             "currentConcurrentUploads": uploadInfo.1,
             "runningUploadsCount": runningUploads,
@@ -349,6 +354,14 @@ public final class TUSClient {
         }
     }
     
+    /// Scheduler no longer starts processing next task after adding task.
+    /// This allows us to utilize it in a batch manner and not instantly start all tasks as their added
+    /// Kick off as many tasks
+    @discardableResult
+    public func startScheduler() throws {
+        self.scheduler.checkProcessNextTasks()
+    }
+    
     // MARK: - Private
     
     /// Check for any uploads that are finished and remove them from the cache.
@@ -450,6 +463,7 @@ public final class TUSClient {
             for metaData in metaDataItems {
                 try scheduleTask(for: metaData)
             }
+            try startScheduler()
 
             return metaDataItems
         } catch (let error) {
@@ -470,6 +484,7 @@ public final class TUSClient {
             for metaData in metaDataItems {
                 try scheduleTask(for: metaData)
             }
+            try startScheduler()
             
             return metaDataItems
         } catch (let error) {
