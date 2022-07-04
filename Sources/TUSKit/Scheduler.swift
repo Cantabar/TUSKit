@@ -32,6 +32,8 @@ final class Scheduler {
     private var runningTasks = [ScheduledTask]()
     weak var delegate: SchedulerDelegate?
     
+    private var maxConcurrentTasks: Int
+    
     var allTasks: [ScheduledTask] {
         queue.sync {
             runningTasks + pendingTasks
@@ -40,6 +42,10 @@ final class Scheduler {
     
     // Tasks are processed in background
     let queue = DispatchQueue(label: "com.TUSKit.Scheduler")
+    
+    init(maxConcurrentTasks: Int) {
+        self.maxConcurrentTasks = maxConcurrentTasks
+    }
 
     /// Add multiple tasks. Note that these are independent tasks. If you want multiple tasks that are related in one way or another, use addGroupedTasks
     /// - Parameter tasks: The tasks to add
@@ -47,7 +53,7 @@ final class Scheduler {
         queue.async {
             guard !tasks.isEmpty else { return }
             self.pendingTasks.append(contentsOf: tasks)
-            self.checkProcessNextTask()
+            //self.checkProcessNextTask()
         }
     }
         
@@ -56,12 +62,12 @@ final class Scheduler {
           let delayTime = DispatchTime.now() + DispatchTimeInterval.milliseconds(delayMilliSeconds)
           queue.asyncAfter(deadline: delayTime){
               self.pendingTasks.append(task)
-              self.checkProcessNextTask()
+              //self.checkProcessNextTask()
           }
       } else {
         queue.async {
             self.pendingTasks.append(task)
-            self.checkProcessNextTask()
+            //self.checkProcessNextTask()
         }
       }
     }
@@ -96,14 +102,26 @@ final class Scheduler {
         }
     }
 
-    func getInfoForTasks() -> (pendingTasksCount: Int, runningTasksCount: Int) {
+    /// Returns current running tasks, pending tasks, and maximum concurrent tasks and current in use (locked by semaphore)
+    func getInfoForTasks() -> (pendingTasksCount: Int, runningTasksCount: Int, maxConcurrentTasks: Int) {
       return (
         self.pendingTasks.count, 
-        self.runningTasks.count
+        self.runningTasks.count,
+        self.maxConcurrentTasks
       )
     }
+    
+    func checkProcessNextTasks() {
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            let runningTasks = self.runningTasks.count
+            for i in runningTasks..<self.maxConcurrentTasks {
+                self.checkProcessNextTask()
+            }
+        }
+    }
 
-    private func checkProcessNextTask() {
+    func checkProcessNextTask() {
         queue.async { [weak self] in
             guard let self = self else { return }
             guard !self.pendingTasks.isEmpty else { return }
@@ -117,9 +135,11 @@ final class Scheduler {
             self.delegate?.didStartTask(task: task, scheduler: self)
             
             task.run { [weak self] result in
+                
                 guard let self = self else { return }
                 // // Make sure tasks are updated atomically
                 self.queue.async {
+                    
                     if let index = self.runningTasks.firstIndex(where: { $0 === task }) {
                         self.runningTasks.remove(at: index)
                     } else {
@@ -149,5 +169,4 @@ final class Scheduler {
         guard !pendingTasks.isEmpty else { return nil }
         return pendingTasks.removeFirst()
     }
-    
 }

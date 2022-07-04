@@ -187,6 +187,10 @@ final class TUSAPI {
         uploadTaskSemaphoreAvailable -= 1
         
         let task = session.uploadTask(request: request, data: data) { [weak self] result in
+            
+            self?.uploadTaskSemaphore.signal()
+            self?.uploadTaskSemaphoreAvailable += 1
+            
             processResult(completion: completion) {
                 let (_, response) = try result.get()
                 
@@ -195,13 +199,7 @@ final class TUSAPI {
                     throw TUSAPIError.couldNotRetrieveOffset
                 }
                 
-                defer {
-                    self?.uploadTaskSemaphore.signal()
-                    self?.uploadTaskSemaphoreAvailable += 1
-                }
-                
                 return offset
-                
             }
         }
         task.resume()
