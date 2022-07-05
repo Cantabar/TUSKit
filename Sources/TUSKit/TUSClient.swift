@@ -384,7 +384,7 @@ public final class TUSClient {
             }
         } catch let error {
             let tusError = TUSClientError.couldnotRemoveFinishedUploads(underlyingError: error)
-            delegate?.fileError(error: error , client: self)
+            delegate?.fileError(error: tusError, client: self)
         }
     }
     
