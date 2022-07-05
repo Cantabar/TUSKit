@@ -25,8 +25,6 @@ final class TUSBackground {
         self.api = api
         self.files = files
         self.chunkSize = chunkSize
-        
-        registerForBackgroundTasks()
     }
     
     func registerForBackgroundTasks() {

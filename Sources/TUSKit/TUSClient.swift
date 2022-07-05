@@ -340,6 +340,13 @@ public final class TUSClient {
     public func scheduleBackgroundTasks() -> Bool {
         return backgroundClient.scheduleBackgroundTasks()
     }
+
+    /// https://developer.apple.com/documentation/uikit/app_and_environment/scenes/preparing_your_ui_to_run_in_the_background/using_background_tasks_to_update_your_app?language=objc
+    /// Must be called before the end of the app launch sequence
+    @available(iOS 13.0, *)
+    public func registerForBackgroundTasks() -> Void {
+        return backgroundClient.registerForBackgroundTasks()
+    }
 #endif
     
     /// Return the id's all failed uploads. Good to check after launch or after background processing for example, to handle them at a later stage.
@@ -377,7 +384,7 @@ public final class TUSClient {
             }
         } catch let error {
             let tusError = TUSClientError.couldnotRemoveFinishedUploads(underlyingError: error)
-            delegate?.fileError(error: tusError , client: self)
+            delegate?.fileError(error: error , client: self)
         }
     }
     
