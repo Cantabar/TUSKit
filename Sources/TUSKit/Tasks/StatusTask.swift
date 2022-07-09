@@ -8,13 +8,14 @@
 import Foundation
 
 /// A `StatusTask` fetches the status of an upload. It fetches the offset from we can continue uploading, and then makes a possible uploadtask.
-final class StatusTask: IdentifiableTask {
+final class StatusTask: ScheduledTask {
     
     // MARK: - IdentifiableTask
     
     var id: UUID {
         metaData.id
     }
+    var taskType: String = "StatusTask"
     
     weak var progressDelegate: ProgressDelegate?
     let api: TUSAPI

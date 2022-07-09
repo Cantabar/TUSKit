@@ -6,7 +6,3 @@
 //
 
 import Foundation
-
-protocol IdentifiableTask: ScheduledTask {
-    var id: UUID { get }
-}

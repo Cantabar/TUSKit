@@ -19,8 +19,10 @@ protocol SchedulerDelegate: AnyObject {
 /// Once a Task is finished. It can spawn new tasks that need to be run.
 /// E.g. If a task is to upload a file, then it can spawn into tasks to cut up the file first. Which can then cut up into a task to upload, which can then add a task to delete the files.
 protocol ScheduledTask: AnyObject {
-    func run(completed: @escaping TaskCompletion)
+    func run(completed: @escaping TaskCompletion) throws -> Void
     func cancel()
+    var taskType: String { get }
+    var id: UUID { get }
 }
 
 /// A scheduler is responsible for processing tasks
@@ -134,32 +136,34 @@ final class Scheduler {
             self.runningTasks.append(task)
             self.delegate?.didStartTask(task: task, scheduler: self)
             
-            task.run { [weak self] result in
-                
-                guard let self = self else { return }
-                // // Make sure tasks are updated atomically
-                self.queue.async {
+            do {
+                try task.run { [weak self] result in
                     
-                    if let index = self.runningTasks.firstIndex(where: { $0 === task }) {
-                        self.runningTasks.remove(at: index)
-                    } else {
-                        // Stray tasks might be canceled meanwhile.
-                    }
-                    
-                    switch result {
-                    case .success(let newTasks):
-                        if !newTasks.isEmpty {
-                            self.pendingTasks = newTasks + self.pendingTasks // If there are new tasks, perform them first. E.g. After creation of a file, start uploading.
+                    guard let self = self else { return }
+                    // // Make sure tasks are updated atomically
+                    self.queue.async {
+                        
+                        if let index = self.runningTasks.firstIndex(where: { $0 === task }) {
+                            self.runningTasks.remove(at: index)
+                        } else {
+                            // Stray tasks might be canceled meanwhile.
                         }
-                        self.delegate?.didFinishTask(task: task, scheduler: self)
-                    case .failure(let error):
-                        self.delegate?.onError(error: error, task: task, scheduler: self)
+                        
+                        switch result {
+                        case .success(let newTasks):
+                            if !newTasks.isEmpty {
+                                self.pendingTasks = newTasks + self.pendingTasks // If there are new tasks, perform them first. E.g. After creation of a file, start uploading.
+                            }
+                            self.delegate?.didFinishTask(task: task, scheduler: self)
+                        case .failure(let error):
+                            self.delegate?.onError(error: error, task: task, scheduler: self)
+                        }
+                        self.checkProcessNextTask()
                     }
-                    self.checkProcessNextTask()
                 }
-                    
+            } catch let error {
+                self.delegate?.onError(error: error, task: task, scheduler: self)
             }
-            
         }
     }
     

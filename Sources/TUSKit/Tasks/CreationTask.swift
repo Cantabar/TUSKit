@@ -9,13 +9,14 @@ import Foundation
 
 /// `CreationTask` Prepares the server for a file upload.
 /// The server will return a path to upload to.
-final class CreationTask: IdentifiableTask {
+final class CreationTask: ScheduledTask {
     
     // MARK: - IdentifiableTask
     
     var id: UUID {
         metaData.id
     }
+    var taskType: String = "CreationTask"
     
     weak var progressDelegate: ProgressDelegate?
     let metaData: UploadMetadata
@@ -33,11 +34,12 @@ final class CreationTask: IdentifiableTask {
         self.chunkSize = chunkSize
     }
     
-    func run(completed: @escaping TaskCompletion) {
+    func run(completed: @escaping TaskCompletion) throws -> Void {
         
         if didCancel { return }
         sessionTask = api.create(metaData: metaData) { [weak self] result in
             guard let self = self else { return }
+            
             // File is created remotely. Now start first datatask.
             
             // Getting rid of self. in this closure
@@ -46,7 +48,6 @@ final class CreationTask: IdentifiableTask {
             let chunkSize = self.chunkSize
             let api = self.api
             let progressDelegate = self.progressDelegate
-
             do {
                 metaData.remoteDestination = try result.get()
                 try files.encodeAndStore(metaData: metaData)
@@ -63,12 +64,12 @@ final class CreationTask: IdentifiableTask {
                 } else {
                     completed(.success([task]))
                 }
-            } catch let error as TUSClientError {
+            }
+            catch let error as TUSClientError {
                 completed(.failure(error))
             } catch {
                 completed(.failure(TUSClientError.couldNotCreateFileOnServer))
             }
-            
         }
     }
     

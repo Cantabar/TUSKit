@@ -9,13 +9,14 @@ import Foundation
 
 /// The upload task will upload to data a destination.
 /// Will spawn more UploadDataTasks if an upload isn't complete.
-final class UploadDataTask: NSObject, IdentifiableTask {
+final class UploadDataTask: NSObject, ScheduledTask {
     
     // MARK: - IdentifiableTask
     
     var id: UUID {
         metaData.id
     }
+    var taskType: String = "UploadDataTask"
     
     weak var progressDelegate: ProgressDelegate?
     let metaData: UploadMetadata
