@@ -61,7 +61,8 @@ final class TUSAPI {
                       let length = Int(lengthStr),
                       let offsetStr = response.allHeaderFields[caseInsensitive: "upload-Offset"] as? String,
                       let offset = Int(offsetStr) else {
-                          throw TUSAPIError.couldNotFetchStatus
+                            print ("Could not fetch status")
+                            throw TUSAPIError.couldNotFetchStatus
                       }
 
                 return Status(length: length, offset: offset)
@@ -87,6 +88,7 @@ final class TUSAPI {
 
                 guard let location = response.allHeaderFields[caseInsensitive: "location"] as? String,
                       let locationURL = URL(string: location, relativeTo: metaData.uploadURL) else {
+                    print ("Could not retrieve location")
                     throw TUSAPIError.couldNotRetrieveLocation
                 }
 

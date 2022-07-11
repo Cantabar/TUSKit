@@ -77,12 +77,15 @@ public final class TUSClient {
     private let chunkSize: Int
     /// Keep track of uploads and their id's
     private var uploads = [UUID: UploadMetadata]()
+    /// Restrict maximum concurrent uploads in scheduler and background scheduler
     private let maxConcurrentUploads: Int
+    /// Keep track of uploads that occur in the background
+    private var updatesToSync: [TUSClientUpdate] = []
     
 #if os(iOS)
     @available(iOS 13.0, *)
     private lazy var backgroundClient: TUSBackground = {
-        return TUSBackground(api: api, files: files, chunkSize: chunkSize)
+        return TUSBackground(api: api, files: files, chunkSize: chunkSize, maxConcurrentTasks: maxConcurrentUploads)
     }()
 #endif
     
@@ -106,7 +109,8 @@ public final class TUSClient {
         self.maxConcurrentUploads = maxConcurrentUploads
         
         scheduler.delegate = self
-        removeFinishedUploads()
+        // Background uploads don't clean up or notify parent of progress
+        getUpdatesToSync()
     }
     
     // MARK: - Starting and stopping
@@ -149,7 +153,7 @@ public final class TUSClient {
     }
     
     public func cancel(id: UUID) throws {
-        let tasksToCancel = scheduler.allTasks.filter { ($0 as? IdentifiableTask)?.id == id }
+        let tasksToCancel = scheduler.allTasks.filter { ($0 as? ScheduledTask)?.id == id }
         scheduler.cancelTasks(tasksToCancel)
     }
 
@@ -369,20 +373,53 @@ public final class TUSClient {
         self.scheduler.checkProcessNextTasks()
     }
     
+    /// Background tasks don't communicate progress back to react-native-tus
+    /// This method allows react-native app to sync with the metadata filesystem
+    @discardableResult
+    public func sync() -> [[String:Any]] {
+        do {
+            if(updatesToSync.count == 0) {
+                try getUpdatesToSync()
+            }
+            let updates = updatesToSync.map { update in
+                return [
+                  "id": "\(update.id)",
+                  "bytesUploaded": update.bytesUploaded,
+                  "size": update.size,
+                  "isError": update.errorCount >= retryCount,
+                  "name": update.name
+                ]
+            }
+            updatesToSync.removeAll()
+            return updates
+        } catch let error {
+            return []
+        }
+    }
+    
     // MARK: - Private
     
-    /// Check for any uploads that are finished and remove them from the cache.
-    private func removeFinishedUploads() {
+    /// Builds a list of files and their current status so parent can stay in sync with TUSClient
+    /// Also, checks for any uploads that are finished and remove them from the cache (Background uploads don't have clean up)
+    private func getUpdatesToSync() {
         do {
-            let metaDataList = try files.loadAllMetadata()
-                .filter { metaData in
-                    metaData.size == metaData.uploadedRange?.count
+            try files.loadAllMetadata()
+            .forEach{ metaData in
+                let tusClientUpdate = TUSClientUpdate(id: metaData.id,
+                                                      bytesUploaded: metaData.uploadedRange?.count ?? 0,
+                                                      size: metaData.size,
+                                                      errorCount: metaData.errorCount,
+                                                      name: metaData.context?["name"] ?? "")
+                if (metaData.size == metaData.uploadedRange?.count) {
+                    try files.removeFileAndMetadata(metaData)
                 }
-            
-            for metaData in metaDataList {
-                try files.removeFileAndMetadata(metaData)
+                updatesToSync.append(tusClientUpdate)
             }
         } catch let error {
+            /// If called and no background tasks exist this error occurs
+            if (error.localizedDescription == "The file “background” couldn’t be opened because there is no such file.") {
+                return
+            }
             let tusError = TUSClientError.couldnotRemoveFinishedUploads(underlyingError: error)
             delegate?.fileError(error: tusError, client: self)
         }
