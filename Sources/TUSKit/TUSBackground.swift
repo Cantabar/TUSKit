@@ -9,8 +9,6 @@ import Foundation
 import BackgroundTasks
 
 #if os(iOS)
-@available(iOS 13.0, *)
-typealias GetFirstTaskCompletion = (ScheduledTask?) -> ()
 
 /// Perform background uploading
 @available(iOS 13.0, *)
@@ -41,16 +39,13 @@ final class TUSBackground {
 #else
         BGTaskScheduler.shared.register(forTaskWithIdentifier: TUSBackground.identifier, using: nil) { [weak self] bgTask in
             guard let self = self else {
-                print("No reference to self?")
                 return
             }
             guard let backgroundTask = bgTask as? BGProcessingTask else {
-                print("No reference to bgTask")
                 return
             }
             
             guard let tusTask = self.firstRunnableTask() else {
-                print("No task to run")
                 backgroundTask.setTaskCompleted(success: true)
                 return
             }
