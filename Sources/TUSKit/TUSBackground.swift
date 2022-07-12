@@ -11,7 +11,7 @@ import BackgroundTasks
 #if os(iOS)
 
 /// Perform background uploading
-@available(iOS 13.0, *)
+@available(iOS 13.4, *)
 final class TUSBackground {
     
     // Same as in the Info.plist `Permitted background task scheduler identifiers`

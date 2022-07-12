@@ -9,6 +9,7 @@ import Foundation
 
 /// The upload task will upload to data a destination.
 /// Will spawn more UploadDataTasks if an upload isn't complete.
+@available(iOS 13.4, *)
 final class UploadDataTask: NSObject, ScheduledTask {
     
     // MARK: - IdentifiableTask
@@ -104,6 +105,7 @@ final class UploadDataTask: NSObject, ScheduledTask {
                     let receivedOffset = try result.get()
                     let currentOffset = metaData.uploadedRange?.upperBound ?? 0
                     metaData.uploadedRange = 0..<receivedOffset
+                    metaData.currentChunk += 1
                     
                     let hasFinishedUploading = receivedOffset == metaData.size
                     if hasFinishedUploading {
@@ -157,7 +159,6 @@ final class UploadDataTask: NSObject, ScheduledTask {
         }
     }
     
-    @available(iOS 11.0, macOS 10.13, *)
     func observeTask(task: URLSessionUploadTask, size: Int) {
         let targetRange = self.range ?? 0..<size
         let uploaded = metaData.uploadedRange?.count ?? 0
@@ -177,28 +178,13 @@ final class UploadDataTask: NSObject, ScheduledTask {
     /// Load data based on range (if there). Uses FileHandle to be able to handle large files
     /// - Returns: The data, or nil if it can't be loaded.
     func loadData() throws -> Data {
-        let fileHandle = try FileHandle(forReadingFrom: metaData.filePath)
+        let fileHandle = try FileHandle(forReadingFrom: metaData.fileDir.appendingPathComponent("\(metaData.currentChunk).\(metaData.fileExtension)"))
         
         defer {
             fileHandle.closeFile()
         }
         
-        // Can't use switch with #available :'(
-        
-        if let range = self.range, #available(iOS 13.0, macOS 10.15, *) { // Has range, for newer versions
-            try fileHandle.seek(toOffset: UInt64(range.startIndex))
-            return fileHandle.readData(ofLength: range.count)
-        } else if let range = self.range { // Has range, for older versions
-            fileHandle.seek(toFileOffset: UInt64(range.startIndex))
-            return fileHandle.readData(ofLength: range.count)
-            /*
-             } else if #available(iOS 13.4, macOS 10.15, *) { // No range, newer versions.
-             Note that compiler and api says that readToEnd is available on macOS 10.15.4 and higher, but yet github actions of 10.15.7 fails to find the member.
-             return try fileHandle.readToEnd()
-             */
-        } else { // No range, older versions
-            return fileHandle.readDataToEndOfFile()
-        }
+        return try fileHandle.readToEnd() ?? Data()
     }
     
     func cancel() {

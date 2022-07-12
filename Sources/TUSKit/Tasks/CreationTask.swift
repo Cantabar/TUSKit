@@ -9,6 +9,7 @@ import Foundation
 
 /// `CreationTask` Prepares the server for a file upload.
 /// The server will return a path to upload to.
+@available(iOS 13.4, *)
 final class CreationTask: ScheduledTask {
     
     // MARK: - IdentifiableTask

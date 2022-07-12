@@ -23,7 +23,7 @@ struct Status {
 
 /// The Uploader's responsibility is to perform work related to uploading.
 /// This includes: Making requests, handling requests, handling errors.
-final class TUSAPI {
+final class TUSAPI: NSObject {
     enum HTTPMethod: String {
         case head = "HEAD"
         case post = "POST"
@@ -53,22 +53,7 @@ final class TUSAPI {
     @discardableResult
     func status(remoteDestination: URL, headers: [String: String]?, completion: @escaping (Result<Status, TUSAPIError>) -> Void) -> URLSessionDataTask {
         let request = makeRequest(url: remoteDestination, method: .head, headers: headers ?? [:])
-        let task = session.dataTask(request: request) { result in
-            processResult(completion: completion) {
-                let (_, response) =  try result.get()
-                
-                guard let lengthStr = response.allHeaderFields[caseInsensitive: "upload-Length"] as? String,
-                      let length = Int(lengthStr),
-                      let offsetStr = response.allHeaderFields[caseInsensitive: "upload-Offset"] as? String,
-                      let offset = Int(offsetStr) else {
-                            print ("Could not fetch status")
-                            throw TUSAPIError.couldNotFetchStatus
-                      }
-
-                return Status(length: length, offset: offset)
-            }
-        }
-        
+        let task = session.dataTask(with: request)
         task.resume()
         return task
     }
@@ -82,20 +67,7 @@ final class TUSAPI {
     @discardableResult
     func create(metaData: UploadMetadata, completion: @escaping (Result<URL, TUSAPIError>) -> Void) -> URLSessionDataTask {
         let request = makeCreateRequest(metaData: metaData)
-        let task = session.dataTask(request: request) { (result: Result<(Data?, HTTPURLResponse), Error>) in
-            processResult(completion: completion) {
-                let (_, response) = try result.get()
-
-                guard let location = response.allHeaderFields[caseInsensitive: "location"] as? String,
-                      let locationURL = URL(string: location, relativeTo: metaData.uploadURL) else {
-                    print ("Could not retrieve location")
-                    throw TUSAPIError.couldNotRetrieveLocation
-                }
-
-                return locationURL
-            }
-        }
-        
+        let task = session.dataTask(with: request)
         task.resume()
         return task
     }
@@ -112,7 +84,7 @@ final class TUSAPI {
         func makeUploadMetaHeader() -> [String: String] {
             var metaDataDict: [String: String] = [:]
             
-            let fileName = metaData.filePath.lastPathComponent
+            let fileName = metaData.fileDir.lastPathComponent
             if !fileName.isEmpty && fileName != "/" { // A filename can be invalid, e.g. "/"
                 metaDataDict["filename"] = fileName
             }
@@ -209,6 +181,50 @@ final class TUSAPI {
         return task
     }
     
+    /// Uploads data
+    /// - Parameters:
+    ///   - data: The data to upload. The data will not be chunked by this method! You must supply chunked data.
+    ///   - range: The range of which to upload. Leave empty to upload the entire data in one piece.
+    ///   - location: The location of where to upload to.
+    ///   - completion: Completionhandler for when the upload is finished.
+    @discardableResult
+    func uploadFile(_ fileUrl: URL, location: URL, metaData: UploadMetadata) -> URLSessionUploadTask {
+        /*let offset: Int
+        let length: Int
+        if let range = range {
+            offset = range.lowerBound
+            length = range.upperBound
+        } else {
+             Use entire range
+            offset = 0
+            length = data.count
+        }*/
+        // chunkSize * filePartIndex
+        let offset: Int = 0
+        // Size of current filePart
+        let length: Int = 1000
+        
+        
+        let headers = [
+            "Content-Type": "application/offset+octet-stream",
+            "Upload-Offset": String(offset),
+            "Content-Length": String(length)
+        ]
+        
+        /// Attach all headers from customHeader property
+        let headersWithCustom = headers.merging(metaData.customHeaders ?? [:]) { _, new in new }
+        
+        let request = makeRequest(url: location, method: .patch, headers: headersWithCustom)
+        
+        uploadTaskSemaphore.wait()
+        uploadTaskSemaphoreAvailable -= 1
+        
+        let task = session.uploadTask(with: request, fromFile: fileUrl)
+        task.resume()
+        
+        return task
+    }
+    
     /// A factory to make requests with sane defaults.
     /// - Parameters:
     ///   - url: The URL of the request.
@@ -224,6 +240,70 @@ final class TUSAPI {
         }
         return request
     }
+}
+
+extension TUSAPI: URLSessionDelegate {
+    func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
+        print(session)
+    }
+    
+    func urlSession(_ session: URLSession, didBecomeInvalidWithError error: Error?) {
+        print(session)
+    }
+    /*
+     UploadDataTask
+     { [weak self] result in
+        
+        self?.uploadTaskSemaphore.signal()
+        self?.uploadTaskSemaphoreAvailable += 1
+        
+        processResult(completion: completion) {
+            let (_, response) = try result.get()
+            
+            guard let offsetStr = response.allHeaderFields[caseInsensitive: "upload-offset"] as? String,
+                  let offset = Int(offsetStr) else {
+                throw TUSAPIError.couldNotRetrieveOffset
+            }
+            
+            return offset
+        }
+    }
+     */
+    
+    /*
+     StatusTask
+     { result in
+        processResult(completion: completion) {
+            let (_, response) =  try result.get()
+            
+            guard let lengthStr = response.allHeaderFields[caseInsensitive: "upload-Length"] as? String,
+                  let length = Int(lengthStr),
+                  let offsetStr = response.allHeaderFields[caseInsensitive: "upload-Offset"] as? String,
+                  let offset = Int(offsetStr) else {
+                        print ("Could not fetch status")
+                        throw TUSAPIError.couldNotFetchStatus
+                  }
+
+            return Status(length: length, offset: offset)
+        }
+    }
+     */
+    /*
+     CreationTask
+     { (result: Result<(Data?, HTTPURLResponse), Error>) in
+         processResult(completion: completion) {
+             let (_, response) = try result.get()
+
+             guard let location = response.allHeaderFields[caseInsensitive: "location"] as? String,
+                   let locationURL = URL(string: location, relativeTo: metaData.uploadURL) else {
+                 print ("Could not retrieve location")
+                 throw TUSAPIError.couldNotRetrieveLocation
+             }
+
+             return locationURL
+         }
+     }
+     */
 }
 
 /// This helper function solves a couple problems:

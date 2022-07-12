@@ -12,6 +12,7 @@ import MobileCoreServices
 #endif
 
 /// Implement this delegate to receive updates from the TUSClient
+@available(iOS 13.4, macOS 10.13, *)
 public protocol TUSClientDelegate: AnyObject {
     /// TUSClient initialized an upload
     func didInitializeUpload(id: UUID, context: [String: String]?, client: TUSClient)
@@ -30,14 +31,13 @@ public protocol TUSClientDelegate: AnyObject {
     /// - Important: The total is based on active uploads, so it will lower once files are uploaded. This is because it's ambiguous what the total is. E.g. You can be uploading 100 bytes, after 50 bytes are uploaded, let's say you add 150 more bytes, is the total then 250 or 200? And what if the upload is done, and you add 50 more. Is the total 50 or 300? or 250?
     ///
     /// As a rule of thumb: The total will be highest on the start, a good starting point is to compare the progress against that number.
-    @available(iOS 11.0, macOS 10.13, *)
     func totalProgress(bytesUploaded: Int, totalBytes: Int, client: TUSClient)
     
-    @available(iOS 11.0, macOS 10.13, *)
     /// Get the progress of a specific upload by id. The id is given when adding an upload and methods of this delegate.
     func progressFor(id: UUID, context: [String: String]?, bytesUploaded: Int, totalBytes: Int, client: TUSClient)
 }
 
+@available(iOS 13.4, macOS 10.13, *)
 public extension TUSClientDelegate {
     func progressFor(id: UUID, context: [String: String]?, progress: Float, client: TUSClient) {
         // Optional
@@ -45,12 +45,12 @@ public extension TUSClientDelegate {
 }
 
 protocol ProgressDelegate: AnyObject {
-    @available(iOS 11.0, macOS 10.13, *)
     func progressUpdatedFor(metaData: UploadMetadata, totalUploadedBytes: Int)
 }
 
 /// The TUSKit client.
 /// Please refer to the Readme.md on how to use this type.
+@available(iOS 13.4, macOS 10.13, *)
 public final class TUSClient {
     
     // MARK: - Public Properties
@@ -83,7 +83,7 @@ public final class TUSClient {
     private var updatesToSync: [TUSClientUpdate] = []
     
 #if os(iOS)
-    @available(iOS 13.0, *)
+    @available(iOS 13.4, *)
     private lazy var backgroundClient: TUSBackground = {
         return TUSBackground(api: api, files: files, chunkSize: chunkSize, maxConcurrentTasks: maxConcurrentUploads)
     }()
@@ -210,37 +210,13 @@ public final class TUSClient {
         didStopAndCancel = false
         do {
             let id = UUID()
-            let destinationFilePath = try files.copy(from: filePath, id: id)
-            try scheduleTask(for: destinationFilePath, id: id, uploadURL: uploadURL, customHeaders: customHeaders, context: context, startNow: startNow)
+            let storedFileDir = try files.copyAndChunk(from: filePath, id: id, chunkSize: self.chunkSize)
+            try scheduleTask(for: storedFileDir, id: id, originalFilePath: filePath, uploadURL: uploadURL, customHeaders: customHeaders, context: context, startNow: startNow)
             return id
         } catch let error as TUSClientError {
             throw error
         } catch let error {
             throw TUSClientError.couldNotCopyFile(underlyingError: error)
-        }
-    }
-    
-    /// Upload data
-    /// - Parameters:
-    ///   - data: The data to be upload
-    ///   - preferredFileExtension: A file extension to add when saving the file. E.g. You can add ".JPG" to raw data that's being saved. This will help the uploader's metadata.
-    ///   - uploadURL: A custom URL to upload to. For if you don't want to use the default server url. Will call the `create` on this custom url to get the definitive upload url.
-    ///   - customHeaders: The headers to upload.
-    ///   - context: Add a custom context when uploading files that you will receive back in a later stage. Useful for custom metadata you want to associate with the upload. Don't put sensitive information in here! Since a context will be stored to the disk.
-    /// - Returns: An id
-    /// - Throws: TUSClientError
-    @discardableResult
-    public func upload(data: Data, preferredFileExtension: String? = nil, uploadURL: URL? = nil, customHeaders: [String: String] = [:], context: [String: String]? = nil) throws -> UUID {
-        didStopAndCancel = false
-        do {
-            let id = UUID()
-            let filePath = try files.store(data: data, id: id, preferredFileExtension: preferredFileExtension)
-            try scheduleTask(for: filePath, id: id, uploadURL: uploadURL, customHeaders: customHeaders, context: context)
-            return id
-        } catch let error as TUSClientError {
-            throw error
-        } catch let error {
-            throw TUSClientError.couldNotStoreFile(underlyingError: error)
         }
     }
     
@@ -259,23 +235,6 @@ public final class TUSClient {
     public func uploadFiles(filePaths: [URL], uploadURL:URL? = nil, customHeaders: [String: String] = [:], context: [String: String]? = nil) throws -> [UUID] {
         try filePaths.map { filePath in
             try uploadFileAt(filePath: filePath, uploadURL: uploadURL, customHeaders: customHeaders, context: context)
-        }
-    }
-    
-    /// Upload multiple files by giving their url.
-    /// If you want a different uploadURL for each file, then please use `upload(data:)` individually.
-    /// - Parameters:
-    ///   - dataFiles: An array of data to be uploaded.
-    ///   - preferredFileExtension: A file extension to add when saving the file. E.g. You can add ".JPG" to raw data that's being saved. This will help the uploader's metadata.
-    ///   - uploadURL: The URL to upload to. Leave nil for the default URL.
-    ///   - customHeaders: Any headers you want to add to the upload
-    ///   - context: Add a custom context when uploading files that you will receive back in a later stage. Useful for custom metadata you want to associate with the upload. Don't put sensitive information in here! Since a context will be stored to the disk.
-    /// - Returns: An array of ids
-    /// - Throws: TUSClientError
-    @discardableResult
-    public func uploadMultiple(dataFiles: [Data], preferredFileExtension: String? = nil, uploadURL: URL? = nil, customHeaders: [String: String] = [:], context: [String: String]? = nil) throws -> [UUID] {
-        try dataFiles.map { data in
-            try upload(data: data, preferredFileExtension: preferredFileExtension, uploadURL: uploadURL, customHeaders: customHeaders, context: context)
         }
     }
     
@@ -340,14 +299,12 @@ public final class TUSClient {
     /// This will signal the OS to upload files when appropriate (e.g. when a phone is on a charger and on Wifi).
     /// Note that the OS decides when uploading begins.
 #if os(iOS)
-    @available(iOS 13.0, *)
     public func scheduleBackgroundTasks() -> Bool {
         return backgroundClient.scheduleBackgroundTasks()
     }
 
     /// https://developer.apple.com/documentation/uikit/app_and_environment/scenes/preparing_your_ui_to_run_in_the_background/using_background_tasks_to_update_your_app?language=objc
     /// Must be called before the end of the app launch sequence
-    @available(iOS 13.0, *)
     public func registerForBackgroundTasks() -> Void {
         return backgroundClient.registerForBackgroundTasks()
     }
@@ -427,23 +384,12 @@ public final class TUSClient {
     
     /// Upload a file at the URL. Will not copy the path.
     /// - Parameter storedFilePath: The path where the file is stored for processing.
-    private func scheduleTask(for storedFilePath: URL, id: UUID, uploadURL: URL?, customHeaders: [String: String], context: [String: String]?, startNow: Bool = true) throws {
-        let filePath = storedFilePath
-        
-        func getSize() throws -> Int {
-            let size = try filePath.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? Data(contentsOf: filePath).count
-            
-            guard size > 0 else {
-                throw TUSClientError.fileSizeUnknown
-            }
-            
-            return size
-        }
+    private func scheduleTask(for storedFileDir: URL, id: UUID, originalFilePath: URL, uploadURL: URL?, customHeaders: [String: String], context: [String: String]?, startNow: Bool = true) throws {
         
         func makeMetadata() throws -> UploadMetadata {
-            let size = try getSize()
+            let size = try files.getFileSize(filePath: originalFilePath)
             let url = uploadURL ?? serverURL
-            return UploadMetadata(id: id, filePath: filePath, uploadURL: url, size: size, customHeaders: customHeaders, mimeType: filePath.mimeType.nonEmpty, context: context)
+            return UploadMetadata(id: id, fileDir: storedFileDir, uploadURL: url, size: size, chunkSize: chunkSize, fileExtension: originalFilePath.pathExtension , customHeaders: customHeaders, mimeType: originalFilePath.mimeType.nonEmpty, context: context)
         }
         
         let metaData = try makeMetadata()
@@ -482,7 +428,7 @@ public final class TUSClient {
     /// Check which uploads aren't finished and return them.
     private func getStoredTasks() -> [UploadMetadata] {
         do {
-            try files.makeDirectoryIfNeeded()
+            try files.makeDirectoryIfNeeded(nil)
             let metaDataItems = try files.loadAllMetadata().filter({ metaData in
                 // Only allow uploads where errors are below an amount
                 metaData.errorCount <= retryCount && !metaData.isFinished
@@ -550,6 +496,7 @@ public final class TUSClient {
     
 }
 
+@available(iOS 13.4, *)
 extension TUSClient: SchedulerDelegate {
     func didFinishTask(task: ScheduledTask, scheduler: Scheduler) {
         switch task {
@@ -659,25 +606,25 @@ private extension String {
 /// Decide which task to create based on metaData.
 /// - Parameter metaData: The `UploadMetadata` for which to create a `Task`.
 /// - Returns: The task that has to be performed for the relevant metaData. Will return nil if metaData's file is already uploaded / finished. (no task needed).
+@available(iOS 13.4, *)
 func taskFor(metaData: UploadMetadata, api: TUSAPI, files: Files, chunkSize: Int, progressDelegate: ProgressDelegate? = nil) throws -> ScheduledTask? {
     guard !metaData.isFinished else {
         return nil
     }
     
     if let remoteDestination = metaData.remoteDestination {
-        let statusTask = StatusTask(api: api, remoteDestination: remoteDestination, metaData: metaData, files: files, chunkSize: chunkSize)
+        let statusTask = StatusTask(api: api, remoteDestination: remoteDestination, metaData: metaData, files: files)
         statusTask.progressDelegate = progressDelegate
         return statusTask
     } else {
-        let creationTask = try CreationTask(metaData: metaData, api: api, files: files, chunkSize: chunkSize)
+        let creationTask = try CreationTask(metaData: metaData, api: api, files: files)
         creationTask.progressDelegate = progressDelegate
         return creationTask
     }
 }
 
+@available(iOS 13.4, *)
 extension TUSClient: ProgressDelegate {
-    
-    @available(iOS 11.0, macOS 10.13, *)
     func progressUpdatedFor(metaData: UploadMetadata, totalUploadedBytes: Int) {
         delegate?.progressFor(id: metaData.id, context: metaData.context, bytesUploaded: totalUploadedBytes, totalBytes: metaData.size, client: self)
 
