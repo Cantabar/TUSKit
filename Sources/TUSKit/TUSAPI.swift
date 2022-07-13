@@ -23,7 +23,7 @@ struct Status {
 
 /// The Uploader's responsibility is to perform work related to uploading.
 /// This includes: Making requests, handling requests, handling errors.
-final class TUSAPI: NSObject {
+final class TUSAPI {
     enum HTTPMethod: String {
         case head = "HEAD"
         case post = "POST"
@@ -44,6 +44,51 @@ final class TUSAPI: NSObject {
         self.maxConcurrentUploads = maxConcurrentUploads
     }
     
+    /// Uploads data
+    /// - Parameters:
+    ///   - fileUrl: Prechunked file
+    ///   - range: The range of which to upload. Leave empty to upload the entire data in one piece.
+    ///   - location: The location of where to upload to.
+    ///   - completion: Completionhandler for when the upload is finished.
+    @discardableResult
+    func getUploadTask(_ fileUrl: URL, location: URL, metaData: UploadMetadata) -> URLSessionUploadTask {
+        /*let offset: Int
+        let length: Int
+        if let range = range {
+            offset = range.lowerBound
+            length = range.upperBound
+        } else {
+             Use entire range
+            offset = 0
+            length = data.count
+        }*/
+        // chunkSize * filePartIndex
+        let offset: Int = 0
+        // Size of current filePart
+        let length: Int = 1000
+        
+        
+        let headers = [
+            "Content-Type": "application/offset+octet-stream",
+            "Upload-Offset": String(offset),
+            "Content-Length": String(length)
+        ]
+        
+        /// Attach all headers from customHeader property
+        let headersWithCustom = headers.merging(metaData.customHeaders ?? [:]) { _, new in new }
+        
+        let request = makeRequest(url: location, method: .patch, headers: headersWithCustom)
+        
+        uploadTaskSemaphore.wait()
+        uploadTaskSemaphoreAvailable -= 1
+        
+        let task = session.uploadTask(with: request, fromFile: fileUrl)
+        task.resume()
+        
+        return task
+    }
+    
+    
     /// Fetch the status of an upload if an upload is not finished (e.g. interrupted).
     /// By retrieving the status,  we know where to continue when we upload again.
     /// - Parameters:
@@ -51,12 +96,14 @@ final class TUSAPI: NSObject {
     ///   - headers: Request headers.
     ///   - completion: A completion giving us the `Status` of an upload.
     @discardableResult
-    func status(remoteDestination: URL, headers: [String: String]?, completion: @escaping (Result<Status, TUSAPIError>) -> Void) -> URLSessionDataTask {
-        let request = makeRequest(url: remoteDestination, method: .head, headers: headers ?? [:])
+    func getStatusTask(metaData: UploadMetadata) -> URLSessionDataTask {
+        let request = makeRequest(url: metaData.remoteDestination!, method: .head, headers: metaData.customHeaders ?? [:])
         let task = session.dataTask(with: request)
-        task.resume()
+        let taskDescription = TaskDescription(uuid: metaData.id.uuidString, taskType: TaskType.status.rawValue)
+        task.taskDescription = self.taskDescriptionToString(taskDescription)
         return task
     }
+    
     
     /// The create step of an upload. In this step, we tell the server we are about to upload data.
     /// The server returns a URL to upload to, we can use the `create` call for this.
@@ -65,11 +112,21 @@ final class TUSAPI: NSObject {
     ///   - metaData: The file metadata.
     ///   - completion: Completes with a result that gives a URL to upload to.
     @discardableResult
-    func create(metaData: UploadMetadata, completion: @escaping (Result<URL, TUSAPIError>) -> Void) -> URLSessionDataTask {
+    func getCreationTask(metaData: UploadMetadata) -> URLSessionDataTask {
         let request = makeCreateRequest(metaData: metaData)
         let task = session.dataTask(with: request)
-        task.resume()
+        let taskDescription = TaskDescription(uuid: metaData.id.uuidString, taskType: TaskType.creation.rawValue)
+        task.taskDescription = self.taskDescriptionToString(taskDescription)
         return task
+    }
+    
+    private func taskDescriptionToString(_ taskDescription: TaskDescription) -> String {
+        do {
+            let jsonData = try JSONEncoder().encode(taskDescription)
+            return String(data: jsonData, encoding: .utf8)!
+        } catch let error {
+            return "{\"type:\"\(taskDescription.taskType)\",\"uuid\":\"\(taskDescription.uuid)\"}"
+        }
     }
     
     /// Returns maximum concurrent requests and current in use (locked by semaphore)
@@ -84,7 +141,7 @@ final class TUSAPI: NSObject {
         func makeUploadMetaHeader() -> [String: String] {
             var metaDataDict: [String: String] = [:]
             
-            let fileName = metaData.fileDir.lastPathComponent
+            let fileName = metaData.fileDir.lastPathComponent + "_chunk_\(metaData.currentChunk)"
             if !fileName.isEmpty && fileName != "/" { // A filename can be invalid, e.g. "/"
                 metaDataDict["filename"] = fileName
             }
@@ -127,104 +184,6 @@ final class TUSAPI: NSObject {
         return makeRequest(url: metaData.uploadURL, method: .post, headers: headers)
     }
     
-    /// Uploads data
-    /// - Parameters:
-    ///   - data: The data to upload. The data will not be chunked by this method! You must supply chunked data.
-    ///   - range: The range of which to upload. Leave empty to upload the entire data in one piece.
-    ///   - location: The location of where to upload to.
-    ///   - completion: Completionhandler for when the upload is finished.
-    @discardableResult
-    func upload(data: Data, range: Range<Int>?, location: URL, metaData: UploadMetadata, completion: @escaping (Result<Int, TUSAPIError>) -> Void) -> URLSessionUploadTask {
-        let offset: Int
-        let length: Int
-        if let range = range {
-            offset = range.lowerBound
-            length = range.upperBound
-        } else {
-            // Use entire range
-            offset = 0
-            length = data.count
-        }
-        
-        let headers = [
-            "Content-Type": "application/offset+octet-stream",
-            "Upload-Offset": String(offset),
-            "Content-Length": String(length)
-        ]
-        
-        /// Attach all headers from customHeader property
-        let headersWithCustom = headers.merging(metaData.customHeaders ?? [:]) { _, new in new }
-        
-        let request = makeRequest(url: location, method: .patch, headers: headersWithCustom)
-        
-        uploadTaskSemaphore.wait()
-        uploadTaskSemaphoreAvailable -= 1
-        
-        let task = session.uploadTask(request: request, data: data) { [weak self] result in
-            
-            self?.uploadTaskSemaphore.signal()
-            self?.uploadTaskSemaphoreAvailable += 1
-            
-            processResult(completion: completion) {
-                let (_, response) = try result.get()
-                
-                guard let offsetStr = response.allHeaderFields[caseInsensitive: "upload-offset"] as? String,
-                      let offset = Int(offsetStr) else {
-                    throw TUSAPIError.couldNotRetrieveOffset
-                }
-                
-                return offset
-            }
-        }
-        task.resume()
-        
-        return task
-    }
-    
-    /// Uploads data
-    /// - Parameters:
-    ///   - data: The data to upload. The data will not be chunked by this method! You must supply chunked data.
-    ///   - range: The range of which to upload. Leave empty to upload the entire data in one piece.
-    ///   - location: The location of where to upload to.
-    ///   - completion: Completionhandler for when the upload is finished.
-    @discardableResult
-    func uploadFile(_ fileUrl: URL, location: URL, metaData: UploadMetadata) -> URLSessionUploadTask {
-        /*let offset: Int
-        let length: Int
-        if let range = range {
-            offset = range.lowerBound
-            length = range.upperBound
-        } else {
-             Use entire range
-            offset = 0
-            length = data.count
-        }*/
-        // chunkSize * filePartIndex
-        let offset: Int = 0
-        // Size of current filePart
-        let length: Int = 1000
-        
-        
-        let headers = [
-            "Content-Type": "application/offset+octet-stream",
-            "Upload-Offset": String(offset),
-            "Content-Length": String(length)
-        ]
-        
-        /// Attach all headers from customHeader property
-        let headersWithCustom = headers.merging(metaData.customHeaders ?? [:]) { _, new in new }
-        
-        let request = makeRequest(url: location, method: .patch, headers: headersWithCustom)
-        
-        uploadTaskSemaphore.wait()
-        uploadTaskSemaphoreAvailable -= 1
-        
-        let task = session.uploadTask(with: request, fromFile: fileUrl)
-        task.resume()
-        
-        return task
-    }
-    
     /// A factory to make requests with sane defaults.
     /// - Parameters:
     ///   - url: The URL of the request.
@@ -239,91 +198,6 @@ final class TUSAPI: NSObject {
             request.addValue(header.value, forHTTPHeaderField: header.key)
         }
         return request
-    }
-}
-
-extension TUSAPI: URLSessionDelegate {
-    func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
-        print(session)
-    }
-    
-    func urlSession(_ session: URLSession, didBecomeInvalidWithError error: Error?) {
-        print(session)
-    }
-    /*
-     UploadDataTask
-     { [weak self] result in
-        
-        self?.uploadTaskSemaphore.signal()
-        self?.uploadTaskSemaphoreAvailable += 1
-        
-        processResult(completion: completion) {
-            let (_, response) = try result.get()
-            
-            guard let offsetStr = response.allHeaderFields[caseInsensitive: "upload-offset"] as? String,
-                  let offset = Int(offsetStr) else {
-                throw TUSAPIError.couldNotRetrieveOffset
-            }
-            
-            return offset
-        }
-    }
-     */
-    
-    /*
-     StatusTask
-     { result in
-        processResult(completion: completion) {
-            let (_, response) =  try result.get()
-            
-            guard let lengthStr = response.allHeaderFields[caseInsensitive: "upload-Length"] as? String,
-                  let length = Int(lengthStr),
-                  let offsetStr = response.allHeaderFields[caseInsensitive: "upload-Offset"] as? String,
-                  let offset = Int(offsetStr) else {
-                        print ("Could not fetch status")
-                        throw TUSAPIError.couldNotFetchStatus
-                  }
-
-            return Status(length: length, offset: offset)
-        }
-    }
-     */
-    /*
-     CreationTask
-     { (result: Result<(Data?, HTTPURLResponse), Error>) in
-         processResult(completion: completion) {
-             let (_, response) = try result.get()
-
-             guard let location = response.allHeaderFields[caseInsensitive: "location"] as? String,
-                   let locationURL = URL(string: location, relativeTo: metaData.uploadURL) else {
-                 print ("Could not retrieve location")
-                 throw TUSAPIError.couldNotRetrieveLocation
-             }
-
-             return locationURL
-         }
-     }
-     */
-}
-
-/// This helper function solves a couple problems:
-/// - It removes boilerplate. E.g. always converting to a Result with TUSAPIError as its error type. No need to have multitple do catch or mapError flatMap cases in every return.
-/// - It makes the callsite friendly, all you need to do is process your response normally, and throw if needed.
-/// - It prevents littering the callsite with completion() calls all over the api responses.
-/// - It also makes sure that completion is always called.
-///
-/// - Note: This method is synchronous and expects a throwing closure.
-/// - Parameters:
-///   - completion: The completion block to call after the processing is done.
-///   - perform: The code to run. Is expected to return a value that will be passed to the completion block. This method may throw.
-private func processResult<T>(completion: (Result<T, TUSAPIError>) -> Void, perform: () throws -> T) {
-    do {
-        let value = try perform()
-        completion(Result.success(value))
-    } catch let error as TUSAPIError {
-        completion(Result.failure(error))
-    } catch {
-        completion(Result.failure(TUSAPIError.underlyingError(error)))
     }
 }
 

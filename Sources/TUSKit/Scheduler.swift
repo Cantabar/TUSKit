@@ -7,22 +7,10 @@
 
 import Foundation
 
-typealias TaskCompletion = (Result<[ScheduledTask], Error>) -> ()
-
 protocol SchedulerDelegate: AnyObject {
     func didStartTask(task: ScheduledTask, scheduler: Scheduler)
     func didFinishTask(task: ScheduledTask, scheduler: Scheduler)
     func onError(error: Error, task: ScheduledTask, scheduler: Scheduler)
-}
-
-/// A Task is run by the scheduler
-/// Once a Task is finished. It can spawn new tasks that need to be run.
-/// E.g. If a task is to upload a file, then it can spawn into tasks to cut up the file first. Which can then cut up into a task to upload, which can then add a task to delete the files.
-protocol ScheduledTask: AnyObject {
-    func run(completed: @escaping TaskCompletion) throws -> Void
-    func cancel()
-    var taskType: String { get }
-    var id: UUID { get }
 }
 
 /// A scheduler is responsible for processing tasks

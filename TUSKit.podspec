@@ -28,7 +28,7 @@ Swift client for https://tus.io called TUSKit. Mac and iOS compatible.
   s.source           = { :git => 'https://github.com/tus/tus-ios-client.git', :tag => s.version.to_s }
   s.platform         = :ios
 
-  s.ios.deployment_target = '13.0'
+  s.ios.deployment_target = '13.4'
   s.osx.deployment_target  = '10.9'
 
   s.source_files = 'Sources/TUSKit/**/*'

@@ -9,34 +9,10 @@ import Foundation
 
 /// A `StatusTask` fetches the status of an upload. It fetches the offset from we can continue uploading, and then makes a possible uploadtask.
 @available(iOS 13.4, *)
-final class StatusTask: ScheduledTask {
-    
-    // MARK: - IdentifiableTask
-    
-    var id: UUID {
-        metaData.id
-    }
-    var taskType: String = "StatusTask"
-    
-    weak var progressDelegate: ProgressDelegate?
-    let api: TUSAPI
-    let files: Files
-    let remoteDestination: URL
-    let metaData: UploadMetadata
-    private var didCancel: Bool = false
-    weak var sessionTask: URLSessionDataTask?
-    
-    init(api: TUSAPI, remoteDestination: URL, metaData: UploadMetadata, files: Files) {
-        self.api = api
-        self.remoteDestination = remoteDestination
-        self.metaData = metaData
-        self.files = files
-    }
-    
-    func run(completed: @escaping TaskCompletion) {
-        // Improvement: On failure, try uploading from the start. Create creationtask.
-        if didCancel { return }
-        sessionTask = api.status(remoteDestination: self.remoteDestination, headers: self.metaData.customHeaders) { [weak self] result in
+final class StatusTask {
+
+    // TODO Should check if offset matches the correct chunk and adjust if not
+    /*{ [weak self] result in
             guard let self = self else { return }
             let metaData = self.metaData
             let files = self.files
@@ -81,12 +57,7 @@ final class StatusTask: ScheduledTask {
                 completed(.failure(TUSClientError.couldNotGetFileStatus))
             }
             
-        }
-    }
-    
-    func cancel() {
-        didCancel = true
-        sessionTask?.cancel()
-    }
+        }*/
+  
 }
 

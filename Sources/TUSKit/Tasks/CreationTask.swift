@@ -10,35 +10,8 @@ import Foundation
 /// `CreationTask` Prepares the server for a file upload.
 /// The server will return a path to upload to.
 @available(iOS 13.4, *)
-final class CreationTask: ScheduledTask {
-    
-    // MARK: - IdentifiableTask
-    
-    var id: UUID {
-        metaData.id
-    }
-    var taskType: String = "CreationTask"
-    
-    weak var progressDelegate: ProgressDelegate?
-    let metaData: UploadMetadata
-    
-    private let api: TUSAPI
-    private let files: Files
-    private let chunkSize: Int?
-    private var didCancel: Bool = false
-    private weak var sessionTask: URLSessionDataTask?
-
-    init(metaData: UploadMetadata, api: TUSAPI, files: Files, chunkSize: Int? = nil) throws {
-        self.metaData = metaData
-        self.api = api
-        self.files = files
-        self.chunkSize = chunkSize
-    }
-    
-    func run(completed: @escaping TaskCompletion) throws -> Void {
-        
-        if didCancel { return }
-        sessionTask = api.create(metaData: metaData) { [weak self] result in
+final class CreationTask {
+  /*{ [weak self] result in
             guard let self = self else { return }
             
             // File is created remotely. Now start first datatask.
@@ -71,11 +44,5 @@ final class CreationTask: ScheduledTask {
             } catch {
                 completed(.failure(TUSClientError.couldNotCreateFileOnServer))
             }
-        }
-    }
-    
-    func cancel() {
-        didCancel = true
-        sessionTask?.cancel()
-    }
+        }*/
 }

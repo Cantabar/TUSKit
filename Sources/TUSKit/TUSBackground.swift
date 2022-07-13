@@ -109,15 +109,6 @@ final class TUSBackground {
         }
     }
     
-    func scheduleBackgroundTasks() -> Bool {
-        #if targetEnvironment(simulator)
-        print("Background tasks aren't supported on simulator (iOS limitation). Ignoring.")
-        return false
-        #else
-        return self.scheduleSingleTask()
-        #endif
-    }
-    
     /// Try and schedule another task. But, might not schedule a task if none are available.
     private func scheduleSingleTask(inputTask: ScheduledTask? = nil) -> Bool {
         guard let task = (inputTask == nil ? firstScheduableTask() : inputTask) else {
