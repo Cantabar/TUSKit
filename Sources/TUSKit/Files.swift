@@ -78,18 +78,26 @@ final class Files {
     /// This happens, because theoretically the documents directory can change. Meaning that metadata's filepaths are invalid.
     /// By updating the filePaths back to the metadata's filepath, we keep the metadata and its related file in sync.
     /// It's a little magic, but it helps prevent strange issues.
+    /// - Parameter filterOnUuid if provided will only load that file
     /// - Throws: File related errors
     /// - Returns: An array of UploadMetadata types
-    func loadAllMetadata() throws -> [UploadMetadata] {
+    func loadAllMetadata(_ filterOnUuids: [String]?) throws -> [UploadMetadata] {
         try queue.sync {
 
-            let uuidDirs = try FileManager.default.contentsOfDirectory(at: storageDirectory, includingPropertiesForKeys: nil)
+            let uuidDirs = try self.contentsOfDirectory(directory: storageDirectory).filter({  uuidDir in
+                if filterOnUuids == nil {
+                    return true
+                }
+                return filterOnUuids!.contains(where: { uuid in
+                    return uuid == uuidDir.lastPathComponent
+                })
+            })
             
             // if you want to filter the directory contents you can do like this:
             let decoder = PropertyListDecoder()
             
             let metaData: [UploadMetadata] = try uuidDirs.compactMap { uuidDir in
-                let uuidDirContents = try FileManager.default.contentsOfDirectory(at: uuidDir, includingPropertiesForKeys: nil)
+                let uuidDirContents = try contentsOfDirectory(directory: uuidDir)
                 let metaDataUrls = uuidDirContents.filter{ $0.pathExtension == "plist" }
                 if(metaDataUrls.isEmpty) {
                     throw FilesError.relatedFileNotFound
@@ -132,7 +140,7 @@ final class Files {
     /// - Parameter id: The unique identifier for the data. Will be used as a filename.
     /// - Throws: Any error related to file handling.
     /// - Returns:The URL of the new directory where chunked files live
-    @available(iOS 13.0, *)
+    @available(iOS 13.4, *)
     @discardableResult
     func copyAndChunk(from location: URL, id: UUID, chunkSize: Int) throws -> URL {
         try makeDirectoryIfNeeded(id)
@@ -145,19 +153,21 @@ final class Files {
         // We don't use lastPathComponent (filename) because then you can't add the same file.
         // With a unique name, you can upload the same file twice if you want.
         let uuidDir = storageDirectory.appendingPathComponent(id.uuidString)
-        print(uuidDir.absoluteString)
         
         let fileSize = try getFileSize(filePath: location)
         var currentSize = 0
         var chunk = 0
         var range = 0..<min(chunkSize, fileSize)
-        while (range.upperBound < fileSize) {
+        while (range.upperBound <= fileSize && range.upperBound != range.lowerBound) {
             let fileName = "\(chunk).\(location.pathExtension)"
             let chunkPathInUuidDir = uuidDir.appendingPathComponent(fileName)
             
             try fileHandle.seek(toOffset: UInt64(range.startIndex))
             let data = fileHandle.readData(ofLength: range.count)
-            try FileManager.default.createFile(atPath: uuidDir.absoluteString, contents: data)
+            //print("Writing chunk to \(chunkPathInUuidDir.absoluteString)")
+            //print("Containing data \(range.lowerBound) - \(range.upperBound)")
+            //print("File handle offset: \(try fileHandle.offset())")
+            try data.write(to: chunkPathInUuidDir, options: .atomic)
             range = range.upperBound..<min(range.upperBound + chunkSize, fileSize)
             chunk += 1
         }
@@ -227,7 +237,7 @@ final class Files {
     /// - Parameter id: Id to find metadata
     /// - Returns: optional `UploadMetadata` type
     func findMetadata(id: UUID) throws -> UploadMetadata? {
-        return try loadAllMetadata().first(where: { metaData in
+        return try loadAllMetadata([id.uuidString]).first(where: { metaData in
             metaData.id == id
         })
     }
@@ -260,12 +270,16 @@ final class Files {
 
     func getFilesToUploadCount() -> Int {
         do {
-          let directoryContents = try FileManager.default.contentsOfDirectory(at: storageDirectory, includingPropertiesForKeys: nil)
-          return directoryContents.count
+            let directoryContents = try contentsOfDirectory(directory: storageDirectory)
+            return directoryContents.count
         }
         catch {
             return 0
         }
+    }
+    
+    func contentsOfDirectory(directory: URL) throws -> [URL] {
+        return try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
     }
 }
 

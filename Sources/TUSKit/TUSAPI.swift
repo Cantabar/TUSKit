@@ -33,15 +33,9 @@ final class TUSAPI {
     }
     
     let session: URLSession
-    let uploadTaskSemaphore: DispatchSemaphore
-    private (set) var uploadTaskSemaphoreAvailable: Int
-    private var maxConcurrentUploads: Int
     
-    init(session: URLSession, maxConcurrentUploads: Int) {
+    init(session: URLSession) {
         self.session = session
-        self.uploadTaskSemaphore = DispatchSemaphore(value: maxConcurrentUploads)
-        self.uploadTaskSemaphoreAvailable = maxConcurrentUploads
-        self.maxConcurrentUploads = maxConcurrentUploads
     }
     
     /// Uploads data
@@ -51,40 +45,28 @@ final class TUSAPI {
     ///   - location: The location of where to upload to.
     ///   - completion: Completionhandler for when the upload is finished.
     @discardableResult
-    func getUploadTask(_ fileUrl: URL, location: URL, metaData: UploadMetadata) -> URLSessionUploadTask {
-        /*let offset: Int
-        let length: Int
-        if let range = range {
-            offset = range.lowerBound
-            length = range.upperBound
-        } else {
-             Use entire range
-            offset = 0
-            length = data.count
-        }*/
-        // chunkSize * filePartIndex
-        let offset: Int = 0
-        // Size of current filePart
-        let length: Int = 1000
+    func getUploadTask(metaData: UploadMetadata, currentChunkFileSize: Int) -> URLSessionUploadTask {
         
+        let fileName = "\(metaData.currentChunk).\(metaData.fileExtension)"
+        let fileUrl = metaData.fileDir.appendingPathComponent(fileName)
+        
+        // chunkSize * filePartIndex
+        let offset: Int = metaData.chunkSize * metaData.currentChunk
         
         let headers = [
             "Content-Type": "application/offset+octet-stream",
             "Upload-Offset": String(offset),
-            "Content-Length": String(length)
+            "Content-Length": String(currentChunkFileSize)
         ]
         
         /// Attach all headers from customHeader property
         let headersWithCustom = headers.merging(metaData.customHeaders ?? [:]) { _, new in new }
         
-        let request = makeRequest(url: location, method: .patch, headers: headersWithCustom)
-        
-        uploadTaskSemaphore.wait()
-        uploadTaskSemaphoreAvailable -= 1
+        let request = makeRequest(url: metaData.remoteDestination!, method: .patch, headers: headersWithCustom)
         
         let task = session.uploadTask(with: request, fromFile: fileUrl)
-        task.resume()
-        
+        let taskDescription = TaskDescription(uuid: metaData.id.uuidString, taskType: TaskType.uploadData.rawValue)
+        task.taskDescription = self.taskDescriptionToString(taskDescription)
         return task
     }
     
@@ -129,19 +111,13 @@ final class TUSAPI {
         }
     }
     
-    /// Returns maximum concurrent requests and current in use (locked by semaphore)
-    func getInfoForUploads() -> (maxConcurrentUploads: Int, currentConcurrentRequests: Int) {
-        return (
-            self.maxConcurrentUploads,
-            self.maxConcurrentUploads - self.uploadTaskSemaphoreAvailable
-        )
-    }
-    
     func makeCreateRequest(metaData: UploadMetadata) -> URLRequest {
         func makeUploadMetaHeader() -> [String: String] {
             var metaDataDict: [String: String] = [:]
             
-            let fileName = metaData.fileDir.lastPathComponent + "_chunk_\(metaData.currentChunk)"
+            let fileName = "\(metaData.currentChunk).\(metaData.fileExtension)"
+            let fileUrl = metaData.fileDir.appendingPathComponent(fileName)
+            
             if !fileName.isEmpty && fileName != "/" { // A filename can be invalid, e.g. "/"
                 metaDataDict["filename"] = fileName
             }

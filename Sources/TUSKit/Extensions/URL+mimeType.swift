@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import MobileCoreServices
 
 extension URL {
     var mimeType: String {

@@ -7,6 +7,7 @@ public enum TUSClientError: Error {
     case couldNotStoreFile(underlyingError: Error)
     case fileSizeUnknown
     case couldNotLoadData(underlyingError: Error)
+    case couldNotLoadMetadata
     case couldNotStoreFileMetadata(underlyingError: Error)
     case couldNotCreateFileOnServer
     case couldNotUploadFile
