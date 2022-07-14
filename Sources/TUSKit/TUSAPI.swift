@@ -67,6 +67,18 @@ final class TUSAPI {
         let task = session.uploadTask(with: request, fromFile: fileUrl)
         let taskDescription = TaskDescription(uuid: metaData.id.uuidString, taskType: TaskType.uploadData.rawValue)
         task.taskDescription = self.taskDescriptionToString(taskDescription)
+        
+        // Progress
+        /*task.progress.observe(\.fractionCompleted) { [weak self] progress, _ in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                guard progress.fractionCompleted <= 1 else { return }
+                let bytes = progress.fractionCompleted * Double(offset)
+                
+                let totalUploadedBytes = (metaData.uploadedRange?.count ?? 0) + Int(bytes)
+                
+            }
+        }*/
         return task
     }
     

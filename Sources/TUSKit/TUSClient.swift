@@ -62,6 +62,8 @@ public final class TUSClient: NSObject {
     private var updatesToSync: [TUSClientUpdate] = []
     /// Prevent spamming startTasks method
     private var isStartingAllTasks: Bool = false
+    public var backgroundSessionCompletionHandler: (() -> Void)?
+
     
     /// Initialize a TUSClient
     /// - Parameters:
@@ -72,13 +74,14 @@ public final class TUSClient: NSObject {
     ///   - chunkSize: The amount of bytes the data to upload will be chunked by. Defaults to 512 kB.
     ///   - maxConcurrentUploads: On HTTP 2 multiplexing allows for many concurrent uploads on 1 connection
     /// - Throws: File related errors when it can't make a directory at the designated path.
-    public init(server: URL, sessionIdentifier: String, storageDirectory: URL? = nil, chunkSize: Int = 500 * 1024, maxConcurrentUploads: Int = 100) throws {
+    public init(server: URL, sessionIdentifier: String, storageDirectory: URL? = nil, chunkSize: Int = 500 * 1024, maxConcurrentUploads: Int = 100, backgroundSessionCompletionHandler: (() -> Void)?) throws {
         super.init()
         
         func initSession() {
             // https://developer.apple.com/documentation/foundation/url_loading_system/downloading_files_in_the_background
             self.sessionIdentifier = sessionIdentifier
             self.maxConcurrentUploads = maxConcurrentUploads
+            self.backgroundSessionCompletionHandler = backgroundSessionCompletionHandler
             
             let urlSessionConfig = URLSessionConfiguration.background(withIdentifier: sessionIdentifier)
             // Restrict maximum parallel connections to 2
@@ -315,6 +318,7 @@ public final class TUSClient: NSObject {
     /// This method allows react-native app to sync with the metadata filesystem
     @discardableResult
     public func sync() -> [[String:Any]] {
+        print("TUSClient syncing")
         do {
             if(updatesToSync.count == 0) {
                 try getUpdatesToSync()
@@ -593,6 +597,8 @@ public final class TUSClient: NSObject {
                 throw TUSClientError.receivedUnexpectedOffset
             }
             
+            delegate?.progressFor(id: metaData.id, context: metaData.context, bytesUploaded: metaData.uploadedRange?.upperBound ?? 0, totalBytes: metaData.size, client: self)
+            
             var nextRange: Range<Int>? = nil
             if let range = metaData.uploadedRange {
                 let chunkSize = range.count
@@ -621,7 +627,9 @@ public final class TUSClient: NSObject {
             print("TUSClient task error: \(error.localizedDescription)")
             
             
-            uploadTasksRunning -= 1
+            if uploadTasksRunning > 0 {
+                uploadTasksRunning -= 1
+            }
             
             // Load metadata from disk
             let metaData = try loadMetadata(for: id)
@@ -653,7 +661,9 @@ public final class TUSClient: NSObject {
     private func processFinishedFile(for metaData: UploadMetadata) {
         print("\(metaData.id.uuidString) finished")
         do {
-            uploadTasksRunning -= 1
+            if uploadTasksRunning > 0 {
+                uploadTasksRunning -= 1
+            }
             try files?.removeFileAndMetadata(metaData)
             startTasks(for: nil)
         } catch let error {
@@ -711,7 +721,14 @@ extension TUSClient: URLSessionTaskDelegate {
             }
         } catch let error {
             print(error)
-            // Handle error
+            do {
+                guard let taskDescription = try task.toTaskDescription() else {
+                    return
+                }
+                processFailedTask(for: taskDescription.uuid, error: error)
+            } catch let _ {
+                
+            }
         }
     }
 }
@@ -722,12 +739,16 @@ extension TUSClient: URLSessionDelegate {
     /// Called when all running upload tasks have finished and the app is in the background so we can invoke completion handler
     public func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
         print("urlSessionDidFinishEvents")
-        print(session)
+        DispatchQueue.main.async {
+            guard let completionHandler = self.backgroundSessionCompletionHandler else {
+                return
+            }
+            completionHandler()
+        }
     }
     
     public func urlSession(_ session: URLSession, didBecomeInvalidWithError error: Error?) {
         print("didBecomeInvalidWithError")
-        print(session)
         print(error)
     }
 }
