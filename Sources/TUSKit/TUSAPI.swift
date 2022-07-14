@@ -67,18 +67,6 @@ final class TUSAPI {
         let task = session.uploadTask(with: request, fromFile: fileUrl)
         let taskDescription = TaskDescription(uuid: metaData.id.uuidString, taskType: TaskType.uploadData.rawValue)
         task.taskDescription = self.taskDescriptionToString(taskDescription)
-        
-        // Progress
-        /*task.progress.observe(\.fractionCompleted) { [weak self] progress, _ in
-            DispatchQueue.main.async {
-                guard let self = self else { return }
-                guard progress.fractionCompleted <= 1 else { return }
-                let bytes = progress.fractionCompleted * Double(offset)
-                
-                let totalUploadedBytes = (metaData.uploadedRange?.count ?? 0) + Int(bytes)
-                
-            }
-        }*/
         return task
     }
     
@@ -107,6 +95,54 @@ final class TUSAPI {
     ///   - completion: Completes with a result that gives a URL to upload to.
     @discardableResult
     func getCreationTask(metaData: UploadMetadata) -> URLSessionDataTask {
+        func makeCreateRequest(metaData: UploadMetadata) -> URLRequest {
+            func makeUploadMetaHeader() -> [String: String] {
+                var metaDataDict: [String: String] = [:]
+                
+                let fileName = "\(metaData.currentChunk).\(metaData.fileExtension)"
+                let fileUrl = metaData.fileDir.appendingPathComponent(fileName)
+                
+                if !fileName.isEmpty && fileName != "/" { // A filename can be invalid, e.g. "/"
+                    metaDataDict["filename"] = fileName
+                }
+                
+                if let mimeType = metaData.mimeType, !mimeType.isEmpty {
+                    metaDataDict["filetype"] = mimeType
+                }
+                
+                let context = (metaData.context ?? [:]) as [String:String]
+                metaDataDict.merge(context) { (first, _) in first }
+                
+                return metaDataDict
+            }
+           
+            /// Turn dict into a comma separated base64 string
+            func encode(_ dict: [String: String]) -> String? {
+                guard !dict.isEmpty else { return nil }
+                var str = ""
+                for (key, value) in dict {
+                    let appendingStr: String
+                    if !str.isEmpty {
+                        str += ", "
+                    }
+                    appendingStr = "\(key) \(value.toBase64())"
+                    str = str + appendingStr
+                }
+                return str
+            }
+            
+            var defaultHeaders = ["Upload-Extension": "creation",
+                                  "Upload-Length": String(metaData.size)]
+            
+            if let encodedMetadata = encode(makeUploadMetaHeader())  {
+                defaultHeaders["Upload-Metadata"] = encodedMetadata
+            }
+            
+            /// Attach all headers from customHeader property
+            let headers = defaultHeaders.merging(metaData.customHeaders ?? [:]) { _, new in new }
+            
+            return makeRequest(url: metaData.uploadURL, method: .post, headers: headers)
+        }
         let request = makeCreateRequest(metaData: metaData)
         let task = session.dataTask(with: request)
         let taskDescription = TaskDescription(uuid: metaData.id.uuidString, taskType: TaskType.creation.rawValue)
@@ -121,55 +157,6 @@ final class TUSAPI {
         } catch let error {
             return "{\"type:\"\(taskDescription.taskType)\",\"uuid\":\"\(taskDescription.uuid)\"}"
         }
-    }
-    
-    func makeCreateRequest(metaData: UploadMetadata) -> URLRequest {
-        func makeUploadMetaHeader() -> [String: String] {
-            var metaDataDict: [String: String] = [:]
-            
-            let fileName = "\(metaData.currentChunk).\(metaData.fileExtension)"
-            let fileUrl = metaData.fileDir.appendingPathComponent(fileName)
-            
-            if !fileName.isEmpty && fileName != "/" { // A filename can be invalid, e.g. "/"
-                metaDataDict["filename"] = fileName
-            }
-            
-            if let mimeType = metaData.mimeType, !mimeType.isEmpty {
-                metaDataDict["filetype"] = mimeType
-            }
-            
-            let context = (metaData.context ?? [:]) as [String:String]
-            metaDataDict.merge(context) { (first, _) in first }
-            
-            return metaDataDict
-        }
-       
-        /// Turn dict into a comma separated base64 string
-        func encode(_ dict: [String: String]) -> String? {
-            guard !dict.isEmpty else { return nil }
-            var str = ""
-            for (key, value) in dict {
-                let appendingStr: String
-                if !str.isEmpty {
-                    str += ", "
-                }
-                appendingStr = "\(key) \(value.toBase64())"
-                str = str + appendingStr
-            }
-            return str
-        }
-        
-        var defaultHeaders = ["Upload-Extension": "creation",
-                              "Upload-Length": String(metaData.size)]
-        
-        if let encodedMetadata = encode(makeUploadMetaHeader())  {
-            defaultHeaders["Upload-Metadata"] = encodedMetadata
-        }
-        
-        /// Attach all headers from customHeader property
-        let headers = defaultHeaders.merging(metaData.customHeaders ?? [:]) { _, new in new }
-        
-        return makeRequest(url: metaData.uploadURL, method: .post, headers: headers)
     }
     
     /// A factory to make requests with sane defaults.

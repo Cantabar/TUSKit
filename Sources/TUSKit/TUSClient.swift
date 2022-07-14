@@ -10,14 +10,12 @@ import UIKit
 /// Implement this delegate to receive updates from the TUSClient
 @available(iOS 13.4, macOS 10.13, *)
 public protocol TUSClientDelegate: AnyObject {
-    /// TUSClient initialized an upload
-    func didInitializeUpload(id: UUID, context: [String: String]?, client: TUSClient)
     /// TUSClient is starting an upload
-    func didStartUpload(id: UUID, context: [String: String]?, client: TUSClient)
+    func didStartUpload(id: UUID, context: [String: String]?)
     /// `TUSClient` just finished an upload, returns the URL of the uploaded file.
-    func didFinishUpload(id: UUID, context: [String: String]?, client: TUSClient)
+    func didFinishUpload(id: UUID, context: [String: String]?)
     /// An upload failed. Returns an error. Could either be a TUSClientError or a networking related error.
-    func uploadFailed(id: UUID, error: Error, context: [String: String]?, client: TUSClient)
+    func uploadFailed(id: UUID, error: String, context: [String: String]?)
     
     /// Receive an error related to files. E.g. The `TUSClient` couldn't store a file or remove a file.
     func fileError(error: TUSClientError, client: TUSClient)
@@ -33,17 +31,13 @@ public protocol TUSClientDelegate: AnyObject {
 public final class TUSClient: NSObject {
     
     // MARK: - Public Properties
-    
-    /// The number of uploads that the TUSClient will try to complete.
-    public var remainingUploads: Int {
-        uploads.count
-    }
     public weak var delegate: TUSClientDelegate?
     
     // MARK: - Private Properties
     
     /// How often to try an upload if it fails. A retryCount of 2 means 3 total uploads max. (1 initial upload, and on repeated failure, 2 more retries.)
-    private let retryCount = 3
+    /// URLSession will auto retry 1 time for any requests that timeout (this retryCount is separate from that)
+    private let retryCount = 5
     /// How long to delay the retry. This is intended to allow the server time to realize the connection has broken. Expected time in milliseconds.
     private let retryDelay = 500
     
@@ -53,16 +47,17 @@ public final class TUSClient: NSObject {
     private var serverURL: URL? = nil
     private var api: TUSAPI? = nil
     private var chunkSize: Int = 0
-    /// Keep track of uploads and their id's
-    private var uploads = [UUID: UploadMetadata]()
     /// Restrict maximum concurrent uploads in scheduler and background scheduler
-    private var maxConcurrentUploads: Int = 0
+    private var maxConcurrentUploadsWifi: Int = 0
+    private var maxConcurrentUploadsNoWifi: Int = 0
     private (set) var uploadTasksRunning: Int = 0
     /// Keep track of uploads that occur in the background
     private var updatesToSync: [TUSClientUpdate] = []
     /// Prevent spamming startTasks method
     private var isStartingAllTasks: Bool = false
+    /// Notify system when we have finished processing background events
     public var backgroundSessionCompletionHandler: (() -> Void)?
+    private let networkMonitor = NetworkMonitor.shared
 
     
     /// Initialize a TUSClient
@@ -74,13 +69,14 @@ public final class TUSClient: NSObject {
     ///   - chunkSize: The amount of bytes the data to upload will be chunked by. Defaults to 512 kB.
     ///   - maxConcurrentUploads: On HTTP 2 multiplexing allows for many concurrent uploads on 1 connection
     /// - Throws: File related errors when it can't make a directory at the designated path.
-    public init(server: URL, sessionIdentifier: String, storageDirectory: URL? = nil, chunkSize: Int = 500 * 1024, maxConcurrentUploads: Int = 100, backgroundSessionCompletionHandler: (() -> Void)?) throws {
+    public init(server: URL, sessionIdentifier: String, storageDirectory: URL? = nil, chunkSize: Int = 500 * 1024, maxConcurrentUploadsWifi: Int = 100, maxConcurrentUploadsNoWifi: Int = 100, backgroundSessionCompletionHandler: (() -> Void)?) throws {
         super.init()
         
         func initSession() {
             // https://developer.apple.com/documentation/foundation/url_loading_system/downloading_files_in_the_background
             self.sessionIdentifier = sessionIdentifier
-            self.maxConcurrentUploads = maxConcurrentUploads
+            self.maxConcurrentUploadsWifi = maxConcurrentUploadsWifi
+            self.maxConcurrentUploadsNoWifi = maxConcurrentUploadsNoWifi
             self.backgroundSessionCompletionHandler = backgroundSessionCompletionHandler
             
             let urlSessionConfig = URLSessionConfiguration.background(withIdentifier: sessionIdentifier)
@@ -101,35 +97,15 @@ public final class TUSClient: NSObject {
         self.serverURL = server
         self.chunkSize = chunkSize
         
+        // Listen to network changes
+        self.networkMonitor.start()
+        
         // Background uploads don't clean up or notify parent of progress
         getUpdatesToSync()
     }
     
-    /// Get which uploads aren't finished.
-    public func getRemainingUploads() -> [(UUID, [String: String]?)] {
-        func getStoredTasks() -> [UploadMetadata] {
-            do {
-                guard let files = self.files else {
-                    throw TUSClientError.couldNotUploadFile
-                }
-                try files.makeDirectoryIfNeeded(nil)
-                let metaDataItems = try files.loadAllMetadata(nil).filter({ metaData in
-                    // Only allow uploads where errors are below an amount
-                    metaData.errorCount <= retryCount && !metaData.isFinished
-                })
-                
-                return metaDataItems
-            } catch (let error) {
-                let tusError = TUSClientError.couldNotLoadData(underlyingError: error)
-                delegate?.fileError(error: tusError, client: self)
-                return []
-            }
-        }
-        
-        let metaData = getStoredTasks()
-        return metaData.map { metaData in
-            (metaData.id, metaData.context)   
-        }
+    deinit {
+        self.networkMonitor.stop()
     }
 
     /// Stops the ongoing sessions, keeps the cache intact so you can continue uploading at a later stage.
@@ -155,7 +131,8 @@ public final class TUSClient: NSObject {
         let filesToUpload = files?.getFilesToUploadCount()
         
         let infoResult: [String:Int] = [
-            "maxConcurrentUploads": maxConcurrentUploads,
+            "maxConcurrentUploadsWifi": maxConcurrentUploadsWifi,
+            "maxConcurrentUploadsNoWifi": maxConcurrentUploadsNoWifi,
             "currentConcurrentUploads":  uploadTasksRunning,
             "filesToUploadCount": filesToUpload ?? 0
         ]
@@ -170,7 +147,6 @@ public final class TUSClient: NSObject {
     public func reset() throws {
         stopAndCancelAll()
         try clearAllCache()
-        uploads = [:]
     }
     
     // MARK: - Upload single file
@@ -209,8 +185,7 @@ public final class TUSClient: NSObject {
             try startTask(for: metaData)
             
             try saveMetadata(metaData: metaData)
-           
-            delegate?.didInitializeUpload(id: id, context: context, client: self);
+            
             return id
         } catch let error as TUSClientError {
             throw error
@@ -277,7 +252,8 @@ public final class TUSClient: NSObject {
     @discardableResult
     public func retry(id: UUID) throws -> (didRetry: Bool, reason: String) {
         do {
-            guard uploads[id] == nil else { return (false, "Already scheduled") }
+            // @todo URLSession getAllTasks should run to verify if task is already running
+            //guard uploads[id] == nil else { return (false, "Already scheduled") }
             guard let metaData = try files?.findMetadata(id: id) else {
                 return (false, "Could not find metadata")
             }
@@ -340,6 +316,12 @@ public final class TUSClient: NSObject {
     }
     
     // MARK: - Private
+    
+    /// Given network status will determine maximum concurrent uploads
+    private func getMaxConcurrentUploads() -> Int {
+        let status = self.networkMonitor.connType
+        return status == ConnectionType.wifi ? self.maxConcurrentUploadsWifi : self.maxConcurrentUploadsNoWifi
+    }
 
     /// Builds a list of files and their current status so parent can stay in sync with TUSClient
     /// Also, checks for any uploads that are finished and remove them from the cache (Background uploads don't have clean up)
@@ -399,13 +381,15 @@ public final class TUSClient: NSObject {
     /// Check which uploads aren't finished. Load them from a store and turn these into tasks.
     public func startTasks(for uuids: [UUID]?) {
         do {
+            let maxConcurrentUploads = self.getMaxConcurrentUploads()
+            
             // Prevent spamming this method
             if uuids == nil {
                 if isStartingAllTasks {
+                    print("TUSClient.startTasks already running")
                     return
-                } else {
-                    isStartingAllTasks = true
                 }
+                isStartingAllTasks = true
             }
           
             // Prevent running a million requests on a multiplexed HTTP/2 connection
@@ -413,6 +397,7 @@ public final class TUSClient: NSObject {
                 if uuids == nil {
                     isStartingAllTasks = false
                 }
+                print("TUSClient.startTasks running maximum concurrent tasks")
                 return
             }
             
@@ -438,6 +423,10 @@ public final class TUSClient: NSObject {
                                         runningTaskIds.append(uuid!)
                                     }
                                 } catch let error {
+                                    print(error)
+                                    if uuids == nil {
+                                        self.isStartingAllTasks = false
+                                    }
                                     return
                                 }
                             }
@@ -447,10 +436,11 @@ public final class TUSClient: NSObject {
                     
                         for metaData in metaDataItems! {
                             // Prevent running a million requests on a multiplexed HTTP/2 connection
-                            if self.uploadTasksRunning >= self.maxConcurrentUploads {
+                            if self.uploadTasksRunning >= maxConcurrentUploads {
                                 if uuids == nil {
                                     self.isStartingAllTasks = false
                                 }
+                                print("TUSClient.startTasks running maximum concurrent tasks")
                                 return
                             }
                             
@@ -460,6 +450,8 @@ public final class TUSClient: NSObject {
                                 try self.startTask(for: metaData)
                             }
                         }
+                        
+                        self.isStartingAllTasks = false
                     } catch let error {
                         if uuids == nil {
                             self?.isStartingAllTasks = false
@@ -484,6 +476,8 @@ public final class TUSClient: NSObject {
         if(metaData == nil || metaData.isFinished) {
             return
         }
+        
+        let maxConcurrentUploads = self.getMaxConcurrentUploads()
         
         // Prevent running a million requests on a multiplexed HTTP/2 connection
         if uploadTasksRunning >= maxConcurrentUploads {
@@ -525,7 +519,7 @@ public final class TUSClient: NSObject {
             api!.getUploadTask(metaData: metaData, currentChunkFileSize: currentChunkFileSize).resume()
             print("UploadTask started")
         } catch let error {
-            processFailedTask(for: id, error: error)
+            processFailedTask(for: id, errorMessage: error.localizedDescription)
         }
     }
     
@@ -568,7 +562,7 @@ public final class TUSClient: NSObject {
             }
             
         } catch let error {
-            processFailedTask(for: id, error: error)
+            processFailedTask(for: id, errorMessage: error.localizedDescription)
         }
     }
     
@@ -577,6 +571,9 @@ public final class TUSClient: NSObject {
         print("Processing UploadTask result")
         do {
             guard let offset = response.uploadOffsetHeader() else {
+                print("Processing UploadTask error: \(response.statusCode)")
+                
+                // If 409 bad offset try status task to get new offset
                 throw TUSAPIError.couldNotRetrieveOffset
             }
             // Load metadata from disk
@@ -618,14 +615,13 @@ public final class TUSClient: NSObject {
             print("Uploading next \(currentChunkFileSize) bytes for \(metaData.id.uuidString)")
             api!.getUploadTask(metaData: metaData, currentChunkFileSize: currentChunkFileSize).resume()
         } catch let error {
-            processFailedTask(for: id, error: error)
+            processFailedTask(for: id, errorMessage: "\(error.localizedDescription) - status code: \(response.statusCode)")
         }
     }
     
-    private func processFailedTask(for id: String, error: Error) {
+    private func processFailedTask(for id: String, errorMessage: String) {
         do {
-            print("TUSClient task error: \(error.localizedDescription)")
-            
+            print("TUSClient task error: \(errorMessage)")
             
             if uploadTasksRunning > 0 {
                 uploadTasksRunning -= 1
@@ -645,11 +641,11 @@ public final class TUSClient: NSObject {
                 }
                 catch let otherError {
                     startTasks(for: nil)
-                    delegate?.uploadFailed(id: metaData.id, error: otherError, context: metaData.context, client: self)
+                    delegate?.uploadFailed(id: metaData.id, error: otherError.localizedDescription, context: metaData.context)
                 }
             } else { // Exhausted all retries, reporting back as failure.
                 startTasks(for: nil)
-                delegate?.uploadFailed(id: metaData.id, error: error, context: metaData.context, client: self)
+                delegate?.uploadFailed(id: metaData.id, error: errorMessage, context: metaData.context)
             }
         } catch let fileError {
             startTasks(for: nil)
@@ -670,7 +666,7 @@ public final class TUSClient: NSObject {
             let tusError = TUSClientError.couldNotDeleteFile(underlyingError: error)
             delegate?.fileError(error: tusError, client: self)
         }
-        delegate?.didFinishUpload(id: metaData.id, context: metaData.context, client: self)
+        delegate?.didFinishUpload(id: metaData.id, context: metaData.context)
     }
 }
 
@@ -701,7 +697,7 @@ extension TUSClient: URLSessionTaskDelegate {
             }
             
             if let error = error {
-                processFailedTask(for: taskDescription.uuid, error: error)
+                processFailedTask(for: taskDescription.uuid, errorMessage: error.localizedDescription)
                 return
             }
             
@@ -720,14 +716,14 @@ extension TUSClient: URLSessionTaskDelegate {
                 break
             }
         } catch let error {
-            print(error)
+            print("didCompleteWithError: \(error.localizedDescription)")
             do {
                 guard let taskDescription = try task.toTaskDescription() else {
                     return
                 }
-                processFailedTask(for: taskDescription.uuid, error: error)
+                processFailedTask(for: taskDescription.uuid, errorMessage: error.localizedDescription)
             } catch let _ {
-                
+                // @todo handle horrible error here
             }
         }
     }

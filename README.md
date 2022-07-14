@@ -38,20 +38,15 @@ You can conform to the `TUSClientDelegate` to receive updates from the `TUSClien
 
 ```swift
 extension MyClass: TUSClientDelegate {
-    func didStartUpload(id: UUID, client: TUSClient) {
+    func didStartUpload(id: UUID) {
         print("TUSClient started upload, id is \(id)")
-        print("TUSClient remaining is \(client.remainingUploads)")
     }
     
-    func didFinishUpload(id: UUID, url: URL, client: TUSClient) {
+    func didFinishUpload(id: UUID, url: URL) {
         print("TUSClient finished upload, id is \(id) url is \(url)")
-        print("TUSClient remaining is \(client.remainingUploads)")
-        if client.remainingUploads == 0 {
-            print("Finished uploading")
-        }
     }
     
-    func uploadFailed(id: UUID, error: Error, client: TUSClient) {
+    func uploadFailed(id: UUID, error: Error) {
         print("TUSClient upload failed for \(id) error \(error)")
     }
     
