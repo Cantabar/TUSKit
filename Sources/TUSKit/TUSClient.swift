@@ -10,15 +10,13 @@ import UIKit
 /// Implement this delegate to receive updates from the TUSClient
 @available(iOS 13.4, macOS 10.13, *)
 public protocol TUSClientDelegate: AnyObject {
-    /// TUSClient is starting an upload
-    func didStartUpload(id: UUID, context: [String: String]?)
     /// `TUSClient` just finished an upload, returns the URL of the uploaded file.
     func didFinishUpload(id: UUID, context: [String: String]?)
     /// An upload failed. Returns an error. Could either be a TUSClientError or a networking related error.
     func uploadFailed(id: UUID, error: String, context: [String: String]?)
     
     /// Receive an error related to files. E.g. The `TUSClient` couldn't store a file or remove a file.
-    func fileError(error: TUSClientError, client: TUSClient)
+    func fileError(id: String, errorMessage: String)
 
     /// Get the progress of a specific upload by id. The id is given when adding an upload and methods of this delegate.
     func progressFor(id: UUID, context: [String: String]?, bytesUploaded: Int, totalBytes: Int, client: TUSClient)
@@ -47,9 +45,18 @@ public final class TUSClient: NSObject {
     private var serverURL: URL? = nil
     private var api: TUSAPI? = nil
     private var chunkSize: Int = 0
+    
     /// Restrict maximum concurrent uploads in scheduler and background scheduler
     private var maxConcurrentUploadsWifi: Int = 0
     private var maxConcurrentUploadsNoWifi: Int = 0
+    /// Given network status will determine maximum concurrent uploads
+    var maxConcurrentUploads: Int {
+        get {
+            let status = self.networkMonitor.connType
+            return status == ConnectionType.wifi ? self.maxConcurrentUploadsWifi : self.maxConcurrentUploadsNoWifi
+        }
+    }
+    
     private (set) var uploadTasksRunning: Int = 0
     /// Keep track of uploads that occur in the background
     private var updatesToSync: [TUSClientUpdate] = []
@@ -67,7 +74,8 @@ public final class TUSClient: NSObject {
     ///   - storageDirectory: A directory to store local files for uploading and continuing uploads. Leave nil to use the documents dir. Pass a relative path (e.g. "TUS" or "/TUS" or "/Uploads/TUS") for a relative directory inside the documents directory.
     ///   You can also pass an absolute path, e.g. "file://uploads/TUS"
     ///   - chunkSize: The amount of bytes the data to upload will be chunked by. Defaults to 512 kB.
-    ///   - maxConcurrentUploads: On HTTP 2 multiplexing allows for many concurrent uploads on 1 connection
+    ///   - maxConcurrentUploadsWifi: On HTTP 2 multiplexing allows for many concurrent uploads on 1 connection
+    ///   - maxConcurrentUploadsNoWifi: When not on wifi will use this as throttle maximum
     /// - Throws: File related errors when it can't make a directory at the designated path.
     public init(server: URL, sessionIdentifier: String, storageDirectory: URL? = nil, chunkSize: Int = 500 * 1024, maxConcurrentUploadsWifi: Int = 100, maxConcurrentUploadsNoWifi: Int = 100, backgroundSessionCompletionHandler: (() -> Void)?) throws {
         super.init()
@@ -149,7 +157,7 @@ public final class TUSClient: NSObject {
         try clearAllCache()
     }
     
-    // MARK: - Upload single file
+    // MARK: - Upload file
     
     /// Upload data located at a url.  This file will be copied to a TUS directory for processing..
     /// If data can not be found at a location, it will attempt to locate the data by prefixing the path with file://
@@ -191,24 +199,6 @@ public final class TUSClient: NSObject {
             throw error
         } catch let error {
             throw TUSClientError.couldNotCopyFile(underlyingError: error)
-        }
-    }
-    
-    // MARK: - Upload multiple files
-    
-    /// Upload multiple files by giving their url.
-    /// If you want a different uploadURL for each file, then please use `uploadFileAt(:)` individually.
-    /// - Parameters:
-    ///   - filePaths: An array of filepaths, represented by URLs
-    ///   - uploadURL: The URL to upload to. Leave nil for the default URL.
-    ///   - customHeaders: Any headers you want to add to the upload
-    ///   - context: Add a custom context when uploading files that you will receive back in a later stage. Useful for custom metadata you want to associate with the upload. Don't put sensitive information in here! Since a context will be stored to the disk.
-    /// - Returns: An array of ids
-    /// - Throws: TUSClientError
-    @discardableResult
-    public func uploadFiles(filePaths: [URL], uploadURL:URL? = nil, customHeaders: [String: String] = [:], context: [String: String]? = nil) throws -> [UUID] {
-        try filePaths.map { filePath in
-            try uploadFile(filePath: filePath, uploadURL: uploadURL, customHeaders: customHeaders, context: context)
         }
     }
     
@@ -282,14 +272,6 @@ public final class TUSClient: NSObject {
         }
     }
     
-    /// Scheduler no longer starts processing next task after adding task.
-    /// This allows us to utilize it in a batch manner and not instantly start all tasks as their added
-    /// Kick off as many tasks
-    @discardableResult
-    public func startScheduler() throws {
-       // self.scheduler?.checkProcessNextTasks()
-    }
-    
     /// Background tasks don't communicate progress back to react-native-tus
     /// This method allows react-native app to sync with the metadata filesystem
     @discardableResult
@@ -316,19 +298,15 @@ public final class TUSClient: NSObject {
     }
     
     // MARK: - Private
-    
-    /// Given network status will determine maximum concurrent uploads
-    private func getMaxConcurrentUploads() -> Int {
-        let status = self.networkMonitor.connType
-        return status == ConnectionType.wifi ? self.maxConcurrentUploadsWifi : self.maxConcurrentUploadsNoWifi
-    }
 
     /// Builds a list of files and their current status so parent can stay in sync with TUSClient
     /// Also, checks for any uploads that are finished and remove them from the cache (Background uploads don't have clean up)
     private func getUpdatesToSync() {
+        var uuid: String = ""
         do {
             try files?.loadAllMetadata(nil)
             .forEach{ metaData in
+                uuid = metaData.id.uuidString
                 let tusClientUpdate = TUSClientUpdate(id: metaData.id,
                                                       bytesUploaded: metaData.uploadedRange?.count ?? 0,
                                                       size: metaData.size,
@@ -340,8 +318,7 @@ public final class TUSClient: NSObject {
                 updatesToSync.append(tusClientUpdate)
             }
         } catch let error {
-            let tusError = TUSClientError.couldnotRemoveFinishedUploads(underlyingError: error)
-            delegate?.fileError(error: tusError, client: self)
+            delegate?.fileError(id: uuid, errorMessage: error.localizedDescription)
         }
     }
     
@@ -381,8 +358,6 @@ public final class TUSClient: NSObject {
     /// Check which uploads aren't finished. Load them from a store and turn these into tasks.
     public func startTasks(for uuids: [UUID]?) {
         do {
-            let maxConcurrentUploads = self.getMaxConcurrentUploads()
-            
             // Prevent spamming this method
             if uuids == nil {
                 if isStartingAllTasks {
@@ -412,6 +387,7 @@ public final class TUSClient: NSObject {
             if metaDataItems != nil {
                 // Prevent duplicate tasks
                 self.session?.getAllTasks(completionHandler: { [weak self] tasks in
+                    var uuid: String = ""
                     do {
                         guard let self = self else { return }
                         func toTaskIds() -> [String] {
@@ -435,8 +411,10 @@ public final class TUSClient: NSObject {
                         let runningTaskIds = toTaskIds()
                     
                         for metaData in metaDataItems! {
+                            uuid = metaData.id.uuidString
+                            
                             // Prevent running a million requests on a multiplexed HTTP/2 connection
-                            if self.uploadTasksRunning >= maxConcurrentUploads {
+                            if self.uploadTasksRunning >= self.maxConcurrentUploads {
                                 if uuids == nil {
                                     self.isStartingAllTasks = false
                                 }
@@ -456,6 +434,7 @@ public final class TUSClient: NSObject {
                         if uuids == nil {
                             self?.isStartingAllTasks = false
                         }
+                        self?.delegate?.fileError(id: uuid, errorMessage: error.localizedDescription)
                         print(error)
                     }
                 })
@@ -464,20 +443,17 @@ public final class TUSClient: NSObject {
             if uuids == nil {
                 isStartingAllTasks = false
             }
-            let tusError = TUSClientError.couldNotLoadData(underlyingError: error)
-            delegate?.fileError(error: tusError, client: self)
+            delegate?.fileError(id: "", errorMessage: error.localizedDescription)
         }
     }
     
-    /// Status task to find out where to continue from if endpoint exists in metadata
+    /// Status task to find out where to continue from if endpoint exists in metadata,
     /// Creation task if no upload endpoint in metadata
     /// - Parameter metaData:The metaData for file to upload.
     private func startTask(for metaData: UploadMetadata) throws {
         if(metaData == nil || metaData.isFinished) {
             return
         }
-        
-        let maxConcurrentUploads = self.getMaxConcurrentUploads()
         
         // Prevent running a million requests on a multiplexed HTTP/2 connection
         if uploadTasksRunning >= maxConcurrentUploads {
@@ -649,8 +625,7 @@ public final class TUSClient: NSObject {
             }
         } catch let fileError {
             startTasks(for: nil)
-            let tusError = TUSClientError.couldNotStoreFileMetadata(underlyingError: fileError)
-            delegate?.fileError(error: tusError, client: self)
+            delegate?.fileError(id: id, errorMessage: fileError.localizedDescription)
         }
     }
         
@@ -663,8 +638,7 @@ public final class TUSClient: NSObject {
             try files?.removeFileAndMetadata(metaData)
             startTasks(for: nil)
         } catch let error {
-            let tusError = TUSClientError.couldNotDeleteFile(underlyingError: error)
-            delegate?.fileError(error: tusError, client: self)
+            delegate?.fileError(id: metaData.id.uuidString, errorMessage: error.localizedDescription)
         }
         delegate?.didFinishUpload(id: metaData.id, context: metaData.context)
     }

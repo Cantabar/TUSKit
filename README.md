@@ -83,14 +83,14 @@ To upload a single stored file, retrieve a file path and pass it to the client.
 
 ```swift
 let pathToFile:URL = ...
-let uploadId = try tusClient.uploadFileAt(filePath: pathToFile)
+let uploadId = try tusClient.uploadFile(filePath: pathToFile)
 ```
 
 To upload multiple files at once, you can use the `uploadFiles(filePaths:)` method.
 
 ## Custom upload URL and custom headers
 
-To specify a custom upload URL (e.g. for TransloadIt) or custom headers to be added to a file upload, please refer to the `uploadURL` and `customHeaders` properties in the methods related to uploading. Such as: `upload`, `uploadFileAt`, `uploadFiles` or `uploadMultiple(dataFiles:)`.
+To specify a custom upload URL (e.g. for TransloadIt) or custom headers to be added to a file upload, please refer to the `uploadURL` and `customHeaders` properties in the methods related to uploading. Such as: `upload`, `uploadFile` or `uploadMultiple(dataFiles:)`.
 
 ## Measuring upload progress
 
