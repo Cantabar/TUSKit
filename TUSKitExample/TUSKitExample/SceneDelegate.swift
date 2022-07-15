@@ -31,16 +31,6 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             case let nr:
                 print("Continuing uploading \(nr) file(s)")
             }
-            
-            // When starting, you can retrieve the locally stored uploads that are marked as failure, and handle those.
-            // E.g. Maybe some uploads failed from a last session, or failed from a background upload.
-            let ids = try tusClient.failedUploadIDs()
-            for id in ids {
-                // You can either retry a failed upload...
-                try tusClient.retry(id: id)
-                // ...alternatively, you can delete them too
-                // tusClient.removeCacheFor(id: id)
-            }
         } catch {
             assertionFailure("Could not fetch failed id's from disk, or could not instantiate TUSClient \(error)")
         }

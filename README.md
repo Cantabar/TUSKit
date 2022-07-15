@@ -128,20 +128,6 @@ For instance, here is how you can initialize the client and check its failed upl
 tusClient = TUSClient(server: URL(string: "https://tusd.tusdemo.net/files")!, sessionIdentifier: "TUS DEMO", storageDirectory: URL(string: "/TUS")!)
 tusClient.delegate = self
 tusClient.startTasks(for: nil)
-        
-do {
-  // When starting, you can retrieve the locally stored uploads that are marked as failure, and handle those.
-  // E.g. Maybe some uploads failed from a last session, or failed from a background upload.
-  let ids = try tusClient.failedUploadIds()
-  for id in ids {
-    // You can either retry a failed upload...
-    try tusClient.retry(id: id)
-    // ...alternatively, you can delete them too
-    // tusClient.removeCacheFor(id: id)
-  }
-} catch {
-  // Could not fetch failed id's from disk
-}
 
 ```
 

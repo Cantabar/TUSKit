@@ -115,12 +115,6 @@ public final class TUSClient: NSObject {
     deinit {
         self.networkMonitor.stop()
     }
-
-    /// Stops the ongoing sessions, keeps the cache intact so you can continue uploading at a later stage.
-    /// - Important: This method is `not` destructive. It only stops the client from running. If you want to avoid uploads to run again. Then please refer to `reset()` or `clearAllCache()`.
-    public func stopAndCancelAll() {
-       // scheduler?.cancelAll()
-    }
     
     public func cancel(id: UUID) throws {
         /*let tasksToCancel = scheduler?.allTasks.filter { ($0 as? ScheduledTask)?.id == id }
@@ -153,7 +147,31 @@ public final class TUSClient: NSObject {
     /// - Warning: This method is destructive and will remove any stored cache.
     /// - Throws: File related errors
     public func reset() throws {
-        stopAndCancelAll()
+        self.session?.reset(completionHandler: <#T##() -> Void#>)
+        
+        // Cancel all tasks
+        self.session?.getAllTasks(completionHandler: { [weak self] tasks in
+            var uuid: String = ""
+            do {
+                guard let self = self else { return }
+                tasks.forEach { task in
+                    task.cancel()
+                }
+                
+            } catch let error {
+                
+            }
+        })
+        
+        // TODO Make cancel work with background URL session
+        func clearAllCache() throws {
+            do {
+                try files?.clearCacheInStorageDirectory()
+            } catch let error {
+                throw TUSClientError.couldNotDeleteFile(underlyingError: error)
+            }
+        }
+        
         try clearAllCache()
     }
     
@@ -204,18 +222,6 @@ public final class TUSClient: NSObject {
     
     // MARK: - Cache
     
-    /// Throw away all files.
-    /// - Important:This will clear the storage directory that you supplied.
-    /// - Important:Don't call this while the client is active. Only between uploading sessions. You can check for the `remainingUploads` property.
-    /// - Throws: TUSClientError if a file is found but couldn't be deleted. Or if files couldn't be loaded.
-    public func clearAllCache() throws {
-        do {
-            try files?.clearCacheInStorageDirectory()
-        } catch let error {
-            throw TUSClientError.couldNotDeleteFile(underlyingError: error)
-        }
-    }
-    
     /// Remove a cache related to an id
     /// - Important:Don't call this while the client is active. Only between uploading sessions.  Or you get undefined behavior.
     /// - Parameter id: The id of a (scheduled) upload that you wish to delete.
@@ -257,18 +263,6 @@ public final class TUSClient: NSObject {
         } catch {
             print(error)
             return (false, error.localizedDescription)
-        }
-    }
-    
-    /// Return the id's all failed uploads. Good to check after launch or after background processing for example, to handle them at a later stage.
-    /// - Returns: An id's array of erronous uploads.
-    public func failedUploadIDs() throws -> [UUID] {
-        try files!.loadAllMetadata(nil).compactMap { metaData in
-            if metaData.errorCount > retryCount {
-                return metaData.id
-            } else {
-                return nil
-            }
         }
     }
     
