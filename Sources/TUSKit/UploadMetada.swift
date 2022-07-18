@@ -18,6 +18,8 @@ final class UploadMetadata: Codable {
         case id
         case uploadURL
         case fileDir
+        case truncatedFileName
+        case truncatedOffset
         case remoteDestination
         case version
         case context
@@ -59,6 +61,36 @@ final class UploadMetadata: Codable {
         } set {
             queue.async {
                 self._fileDir = newValue
+            }
+        }
+    }
+    
+    /// Background URLSession requires file to be prechunked / presized to match the offset the server expects
+    /// We upload a file in sequence not in parallel so truncatedFileName should only ever point to the most recent file that was truncated
+    /// Path is cleared after successfully finishing that chunk
+    private var _truncatedFileName: String?
+    var truncatedFileName: String? {
+        get {
+            queue.sync {
+                _truncatedFileName
+            }
+        } set {
+            queue.async {
+                self._truncatedFileName = newValue
+            }
+        }
+    }
+    
+    /// When truncating a file we need to know how much we shaved off to correctly calculate offsets going forward after truncation of the current chunk
+    private var _truncatedOffset: Int
+    var truncatedOffset: Int {
+        get {
+            queue.sync {
+                _truncatedOffset
+            }
+        } set {
+            queue.sync {
+                _truncatedOffset = newValue
             }
         }
     }
@@ -133,9 +165,11 @@ final class UploadMetadata: Codable {
         }
     }
     
-    init(id: UUID, fileDir: URL, uploadURL: URL, size: Int, chunkSize: Int, fileExtension: String, customHeaders: [String: String]? = nil, mimeType: String? = nil, context: [String: String]? = nil) {
+    init(id: UUID, fileDir: URL, uploadURL: URL, size: Int, chunkSize: Int, fileExtension: String, truncatedFileName: String? = nil, customHeaders: [String: String]? = nil, mimeType: String? = nil, context: [String: String]? = nil) {
         self._id = id
         self._fileDir = fileDir
+        self._truncatedFileName = truncatedFileName
+        self._truncatedOffset = 0
         self.uploadURL = uploadURL
         self.chunkSize = chunkSize
         self._currentChunk = 0
@@ -153,6 +187,8 @@ final class UploadMetadata: Codable {
         _id = try values.decode(UUID.self, forKey: .id)
         uploadURL = try values.decode(URL.self, forKey: .uploadURL)
         _fileDir = try values.decode(URL.self, forKey: .fileDir)
+        _truncatedFileName = try values.decode(String?.self, forKey: .truncatedFileName)
+        _truncatedOffset = try values.decode(Int.self, forKey: .truncatedOffset)
         _remoteDestination = try values.decode(URL?.self, forKey: .remoteDestination)
         version = try values.decode(Int.self, forKey: .version)
         context = try values.decode([String: String]?.self, forKey: .context)
@@ -170,6 +206,8 @@ final class UploadMetadata: Codable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(_id, forKey: .id)
         try container.encode(uploadURL, forKey: .uploadURL)
+        try container.encode(_truncatedFileName, forKey: .truncatedFileName)
+        try container.encode(_truncatedOffset, forKey: .truncatedOffset)
         try container.encode(_remoteDestination, forKey: .remoteDestination)
         try container.encode(_fileDir, forKey: .fileDir)
         try container.encode(version, forKey: .version)
@@ -183,5 +221,4 @@ final class UploadMetadata: Codable {
         try container.encode(size, forKey: .size)
         try container.encode(_errorCount, forKey: .errorCount)
     }
-    
 }

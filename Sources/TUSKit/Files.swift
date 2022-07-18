@@ -72,13 +72,18 @@ final class Files {
         return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
     
+    func printFileDirContents(url: URL) throws {
+        let contents = try self.contentsOfDirectory(directory: url)
+        print(contents)
+    }
+    
     /// Loads all metadata (decoded plist files) from the target directory.
     /// - Important:Metadata assumes to be in the same directory as the file it references.
     /// This means that once retrieved, this method updates the metadata's filePath to the directory that the metadata is in.
     /// This happens, because theoretically the documents directory can change. Meaning that metadata's filepaths are invalid.
     /// By updating the filePaths back to the metadata's filepath, we keep the metadata and its related file in sync.
     /// It's a little magic, but it helps prevent strange issues.
-    /// - Parameter filterOnUuid if provided will only load that file
+    /// - Parameter filterOnUuids if provided will only load those files
     /// - Throws: File related errors
     /// - Returns: An array of UploadMetadata types
     func loadAllMetadata(_ filterOnUuids: [String]?) throws -> [UploadMetadata] {
@@ -135,6 +140,37 @@ final class Files {
         return size
     }
     
+    @available(iOS 13.4, *)
+    @discardableResult
+    func truncateChunk(metaData: UploadMetadata, offset: Int) throws -> Void {
+        
+        // File paths
+        let truncatedFileName = "\(metaData.currentChunk)_truncated.\(metaData.fileExtension)"
+        let currentChunkFileName = "\(metaData.currentChunk).\(metaData.fileExtension)"
+        
+        let truncatedChunkPath = metaData.fileDir.appendingPathComponent(truncatedFileName)
+        let currentChunkPath = metaData.fileDir.appendingPathComponent(currentChunkFileName)
+        
+        // Truncate data
+        let fileHandle = try FileHandle(forReadingFrom: currentChunkPath)
+        defer {
+            fileHandle.closeFile()
+        }
+        try fileHandle.seek(toOffset: UInt64(offset - metaData.truncatedOffset))
+        guard let data = try? fileHandle.readToEnd() else {
+            print("truncateChunk: Could not read file \(currentChunkPath)")
+            throw TUSClientError.couldNotLoadMetadata
+        }
+        
+        // Write to disk
+        try data.write(to: truncatedChunkPath, options: .atomic)
+        print("truncateChunk: Wrote \(offset) bytes to \(truncatedChunkPath) for \(metaData.id.uuidString)")
+        
+        metaData.truncatedFileName = truncatedFileName
+        metaData.truncatedOffset += (offset - metaData.truncatedOffset)
+        try self.encodeAndStore(metaData: metaData)
+    }
+    
     /// Copy a file from location to a TUS directory, get the URL from the new location
     /// - Parameter location: The location where to copy a file from
     /// - Parameter id: The unique identifier for the data. Will be used as a filename.
@@ -164,7 +200,7 @@ final class Files {
             
             try fileHandle.seek(toOffset: UInt64(range.startIndex))
             let data = fileHandle.readData(ofLength: range.count)
-            //print("Writing chunk to \(chunkPathInUuidDir.absoluteString)")
+            print("Writing chunk \(chunk) to \(chunkPathInUuidDir.absoluteString)")
             //print("Containing data \(range.lowerBound) - \(range.upperBound)")
             //print("File handle offset: \(try fileHandle.offset())")
             try data.write(to: chunkPathInUuidDir, options: .atomic)
@@ -202,11 +238,21 @@ final class Files {
     /// Removes metadata and its related file from disk
     /// - Parameter metaData: The metadata description
     /// - Throws: Any error from FileManager when removing a file.
-    func removeFileAndMetadata(_ metaData: UploadMetadata) throws {
+    func removeFile(_ metaData: UploadMetadata) throws {
         let fileDir = metaData.fileDir
         
         try queue.sync {
             try FileManager.default.removeItem(at: fileDir)
+        }
+    }
+    
+    /// Removes metadata and its related file from for array of files
+    /// - Parameter uuids: The IDs of the files to remove, if nil will remove all
+    /// - Throws: Any error from FileManager when removing a file.
+    func removeFilesForUuids(_ uuids: [String]?) throws {
+        let files = try loadAllMetadata(uuids)
+        try files.forEach { file in
+            try self.removeFile(file)
         }
     }
     
@@ -255,16 +301,6 @@ final class Files {
             if !doesExist {
                 try FileManager.default.createDirectory(at: pathWithUuid, withIntermediateDirectories: true)
             }
-        }
-    }
-    
-    func clearCacheInStorageDirectory() throws {
-        try queue.sync {
-            guard FileManager.default.fileExists(atPath: storageDirectory.path, isDirectory: nil) else {
-                return
-            }
-            
-            try FileManager.default.removeItem(at: storageDirectory)
         }
     }
 

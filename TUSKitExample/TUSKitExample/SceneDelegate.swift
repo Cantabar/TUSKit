@@ -87,28 +87,23 @@ extension SceneDelegate: TUSClientDelegate {
        print("TUSClient total upload progress: \(bytesUploaded) of \(totalBytes) bytes.")
     }
     
-    func progressFor(id: UUID, context: [String: String]?, bytesUploaded: Int, totalBytes: Int, client: TUSClient) {
+    func progressFor(id: UUID, context: [String: String]?, bytesUploaded: Int, totalBytes: Int) {
        print("TUSClient single upload progress: \(bytesUploaded) / \(totalBytes)")
     }
     
-    func didStartUpload(id: UUID, context: [String : String]?, client: TUSClient) {
+    func didStartUpload(id: UUID, context: [String : String]?) {
         print("TUSClient started upload, id is \(id)")
-        print("TUSClient remaining is \(client.remainingUploads)")
     }
     
-    func didFinishUpload(id: UUID, url: URL, context: [String : String]?, client: TUSClient) {
+    func didFinishUpload(id: UUID, url: URL, context: [String : String]?) {
         print("TUSClient finished upload, id is \(id) url is \(url)")
-        print("TUSClient remaining is \(client.remainingUploads)")
-        if client.remainingUploads == 0 {
-            print("Finished uploading")
-        }
     }
     
-    func uploadFailed(id: UUID, error: Error, context: [String : String]?, client: TUSClient) {
+    func uploadFailed(id: UUID, error: Error, context: [String : String]?) {
         print("TUSClient upload failed for \(id) error \(error)")
     }
     
-    func fileError(error: TUSClientError, client: TUSClient) {
+    func fileError(error: TUSClientError) {
         print("TUSClient File error \(error)")
     }
     

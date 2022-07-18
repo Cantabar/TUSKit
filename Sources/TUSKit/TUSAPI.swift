@@ -40,18 +40,20 @@ final class TUSAPI {
     
     /// Uploads data
     /// - Parameters:
-    ///   - fileUrl: Prechunked file
-    ///   - range: The range of which to upload. Leave empty to upload the entire data in one piece.
-    ///   - location: The location of where to upload to.
-    ///   - completion: Completionhandler for when the upload is finished.
+    ///   - metaData: Manifest for file to upload
+    ///   - currentChunkFileSize: The content length header (usually chunkSize * filePartIndex unless using truncated file)
+    ///   - offset: The offset into the file as a whole
+    /// - Returns: resumable task
     @discardableResult
     func getUploadTask(metaData: UploadMetadata, currentChunkFileSize: Int) -> URLSessionUploadTask {
         
-        let fileName = "\(metaData.currentChunk).\(metaData.fileExtension)"
-        let fileUrl = metaData.fileDir.appendingPathComponent(fileName)
+        let offset = metaData.currentChunk * metaData.chunkSize + metaData.truncatedOffset
         
-        // chunkSize * filePartIndex
-        let offset: Int = metaData.chunkSize * metaData.currentChunk
+        /// Use truncated file path if it exists, otherwise use prechunked file
+        let fileName = "\(metaData.currentChunk).\(metaData.fileExtension)"
+        let fileUrl =  metaData.fileDir.appendingPathComponent(metaData.truncatedFileName ?? fileName)
+        
+        print("Spawning upload for \(fileUrl)")
         
         let headers = [
             "Content-Type": "application/offset+octet-stream",

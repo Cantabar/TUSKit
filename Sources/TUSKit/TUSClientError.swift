@@ -2,7 +2,6 @@ import Foundation
 
 /// The errors that are passed from TUSClient
 public enum TUSClientError: Error {
-    
     case couldNotCopyFile(underlyingError: Error)
     case couldNotStoreFile(underlyingError: Error)
     case fileSizeUnknown
