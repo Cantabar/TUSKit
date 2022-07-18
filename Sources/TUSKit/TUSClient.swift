@@ -278,6 +278,7 @@ public final class TUSClient: NSObject {
         }
         
         isBatchProcessingFile = false
+        
         return uploads
     }
     
@@ -294,27 +295,6 @@ public final class TUSClient: NSObject {
         self.startTasks(for: nil, processFailedItemsIfEmpty: true)
     }
     
-    // MARK: - Cache
-    
-    /// Remove a cache related to an id
-    /// - Important:Don't call this while the client is active. Only between uploading sessions.  Or you get undefined behavior.
-    /// - Parameter id: The id of a (scheduled) upload that you wish to delete.
-    /// - Returns: A bool whether or not the upload was found and deleted.
-    /// - Throws: TUSClientError if a file is found but couldn't be deleted. Or if files couldn't be loaded.
-    /*@discardableResult
-    public func removeCacheFor(id: UUID) throws -> Bool {
-        do {
-            guard let metaData = try files?.findMetadata(id: id) else {
-                return false
-            }
-            
-            try files?.removeFileAndMetadata(metaData)
-            return true
-        } catch let error {
-            throw TUSClientError.couldNotDeleteFile(underlyingError: error)
-        }
-    }*/
-   
     /// Retry a failed upload. Note that `TUSClient` already has an internal retry mechanic before it reports an upload as failure.
     /// If however, you like to retry an upload at a later stage, you can use this method to trigger the upload again.
     /// - Parameter id: The id of an upload. Received when starting an upload, or via the `TUSClientDelegate`.
