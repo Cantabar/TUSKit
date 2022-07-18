@@ -8,9 +8,21 @@
 import Foundation
 
 enum FilesError: Error {
-    case relatedFileNotFound
-    case dataIsEmpty
-    case unknownError
+    case metaDataFileNotFound
+    case uuidDirectoryNotFound
+}
+
+extension FilesError {
+    public var errorDescription: String? {
+        switch self {
+        case .metaDataFileNotFound:
+            return NSLocalizedString("Metadata.plist file could not be found", comment: "RELATED_FILE_NOT_FOUND")
+        case .uuidDirectoryNotFound:
+            return NSLocalizedString("UUID directory for file was not found", comment: "UUID_DIRECTORY_NOT_FOUND")
+        default:
+            return NSLocalizedString("File error", comment: "FILE_ERROR")
+        }
+    }
 }
 
 /// This type handles the storage for `TUSClient`
@@ -105,7 +117,8 @@ final class Files {
                 let uuidDirContents = try contentsOfDirectory(directory: uuidDir)
                 let metaDataUrls = uuidDirContents.filter{ $0.pathExtension == "plist" }
                 if(metaDataUrls.isEmpty) {
-                    throw FilesError.relatedFileNotFound
+                    print(uuidDirContents)
+                    throw FilesError.metaDataFileNotFound
                 }
                 let metaDataUrl = metaDataUrls[0]
                 if let data = try? Data(contentsOf: metaDataUrl) {
@@ -211,30 +224,6 @@ final class Files {
         return uuidDir
     }
     
-    /// Store data in the TUS directory, get a URL of the location
-    /// - Parameter data: The data to store
-    /// - Parameter id: The unique identifier for the data. Will be used as a filename.
-    /// - Throws: Any file related error (e.g. can't save)
-    /// - Returns: The URL of the stored file
-    @discardableResult
-    func store(data: Data, id: UUID, preferredFileExtension: String? = nil) throws -> URL {
-        try queue.sync {
-            guard !data.isEmpty else { throw FilesError.dataIsEmpty }
-            try makeDirectoryIfNeeded(nil)
-            
-            let fileName: String
-            if let fileExtension = preferredFileExtension {
-                fileName = id.uuidString + fileExtension
-            } else {
-                fileName = id.uuidString
-            }
-            
-            let targetLocation = storageDirectory.appendingPathComponent(fileName)
-            try data.write(to: targetLocation, options: .atomic)
-            return targetLocation
-        }
-    }
-    
     /// Removes metadata and its related file from disk
     /// - Parameter metaData: The metadata description
     /// - Throws: Any error from FileManager when removing a file.
@@ -266,8 +255,8 @@ final class Files {
     func encodeAndStore(metaData: UploadMetadata) throws -> URL {
         try queue.sync {
             guard FileManager.default.fileExists(atPath: metaData.fileDir.path) else {
-                // Could not find the file that's related to this metadata.
-                throw FilesError.relatedFileNotFound
+                // Could not find the directory that's related to this metadata.
+                throw FilesError.uuidDirectoryNotFound
             }
             
             let targetLocation = metaData.fileDir.appendingPathComponent(metadataFileName)
