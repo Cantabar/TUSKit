@@ -17,7 +17,9 @@ final class UploadMetadata: Codable {
     enum CodingKeys: String, CodingKey {
         case id
         case uploadURL
-        case filePath
+        case fileDir
+        case truncatedFileName
+        case truncatedOffset
         case remoteDestination
         case version
         case context
@@ -26,7 +28,9 @@ final class UploadMetadata: Codable {
         case customHeaders
         case size
         case errorCount
-        
+        case chunkSize
+        case currentChunk
+        case fileExtension
     }
     
     var isFinished: Bool {
@@ -48,15 +52,45 @@ final class UploadMetadata: Codable {
     
     let uploadURL: URL
     
-    private var _filePath: URL
-    var filePath: URL {
+    private var _fileDir: URL
+    var fileDir: URL {
         get {
             queue.sync {
-                _filePath
+                _fileDir
             }
         } set {
             queue.async {
-                self._filePath = newValue
+                self._fileDir = newValue
+            }
+        }
+    }
+    
+    /// Background URLSession requires file to be prechunked / presized to match the offset the server expects
+    /// We upload a file in sequence not in parallel so truncatedFileName should only ever point to the most recent file that was truncated
+    /// Path is cleared after successfully finishing that chunk
+    private var _truncatedFileName: String?
+    var truncatedFileName: String? {
+        get {
+            queue.sync {
+                _truncatedFileName
+            }
+        } set {
+            queue.async {
+                self._truncatedFileName = newValue
+            }
+        }
+    }
+    
+    /// When truncating a file we need to know how much we shaved off to correctly calculate offsets going forward after truncation of the current chunk
+    private var _truncatedOffset: Int
+    var truncatedOffset: Int {
+        get {
+            queue.sync {
+                _truncatedOffset
+            }
+        } set {
+            queue.sync {
+                _truncatedOffset = newValue
             }
         }
     }
@@ -96,6 +130,25 @@ final class UploadMetadata: Codable {
     let mimeType: String?
     
     let customHeaders: [String: String]?
+    
+    /// Client can change chunkSize between uploads.
+    /// But files are chunked at the time the file is given to TUS for upload
+    /// So we must save the chunkSize that were created at that time to calculate total chunks
+    let chunkSize: Int
+    private var _currentChunk: Int
+    var currentChunk: Int {
+        get {
+            queue.sync {
+                _currentChunk
+            }
+        } set {
+            queue.sync {
+                _currentChunk = newValue
+            }
+        }
+    }
+    let fileExtension: String
+    
     let size: Int
     
     private var _errorCount: Int
@@ -112,10 +165,15 @@ final class UploadMetadata: Codable {
         }
     }
     
-    init(id: UUID, filePath: URL, uploadURL: URL, size: Int, customHeaders: [String: String]? = nil, mimeType: String? = nil, context: [String: String]? = nil) {
+    init(id: UUID, fileDir: URL, uploadURL: URL, size: Int, chunkSize: Int, fileExtension: String, truncatedFileName: String? = nil, customHeaders: [String: String]? = nil, mimeType: String? = nil, context: [String: String]? = nil) {
         self._id = id
-        self._filePath = filePath
+        self._fileDir = fileDir
+        self._truncatedFileName = truncatedFileName
+        self._truncatedOffset = 0
         self.uploadURL = uploadURL
+        self.chunkSize = chunkSize
+        self._currentChunk = 0
+        self.fileExtension = fileExtension
         self.size = size
         self.customHeaders = customHeaders
         self.mimeType = mimeType
@@ -128,7 +186,9 @@ final class UploadMetadata: Codable {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         _id = try values.decode(UUID.self, forKey: .id)
         uploadURL = try values.decode(URL.self, forKey: .uploadURL)
-        _filePath = try values.decode(URL.self, forKey: .filePath)
+        _fileDir = try values.decode(URL.self, forKey: .fileDir)
+        _truncatedFileName = try values.decode(String?.self, forKey: .truncatedFileName)
+        _truncatedOffset = try values.decode(Int.self, forKey: .truncatedOffset)
         _remoteDestination = try values.decode(URL?.self, forKey: .remoteDestination)
         version = try values.decode(Int.self, forKey: .version)
         context = try values.decode([String: String]?.self, forKey: .context)
@@ -136,6 +196,9 @@ final class UploadMetadata: Codable {
         mimeType = try values.decode(String?.self, forKey: .mimeType)
         customHeaders = try values.decode([String: String]?.self, forKey: .customHeaders)
         size = try values.decode(Int.self, forKey: .size)
+        chunkSize = try values.decode(Int.self, forKey: .chunkSize)
+        fileExtension = try values.decode(String.self, forKey: .fileExtension)
+        _currentChunk = try values.decode(Int.self, forKey: .currentChunk)
         _errorCount = try values.decode(Int.self, forKey: .errorCount)
     }
     
@@ -143,15 +206,19 @@ final class UploadMetadata: Codable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(_id, forKey: .id)
         try container.encode(uploadURL, forKey: .uploadURL)
+        try container.encode(_truncatedFileName, forKey: .truncatedFileName)
+        try container.encode(_truncatedOffset, forKey: .truncatedOffset)
         try container.encode(_remoteDestination, forKey: .remoteDestination)
-        try container.encode(_filePath, forKey: .filePath)
+        try container.encode(_fileDir, forKey: .fileDir)
         try container.encode(version, forKey: .version)
         try container.encode(context, forKey: .context)
         try container.encode(uploadedRange, forKey: .uploadedRange)
         try container.encode(mimeType, forKey: .mimeType)
         try container.encode(customHeaders, forKey: .customHeaders)
+        try container.encode(chunkSize, forKey: .chunkSize)
+        try container.encode(_currentChunk, forKey: .currentChunk)
+        try container.encode(fileExtension, forKey: .fileExtension)
         try container.encode(size, forKey: .size)
         try container.encode(_errorCount, forKey: .errorCount)
     }
-    
 }

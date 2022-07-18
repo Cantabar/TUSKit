@@ -38,20 +38,15 @@ You can conform to the `TUSClientDelegate` to receive updates from the `TUSClien
 
 ```swift
 extension MyClass: TUSClientDelegate {
-    func didStartUpload(id: UUID, client: TUSClient) {
+    func didStartUpload(id: UUID) {
         print("TUSClient started upload, id is \(id)")
-        print("TUSClient remaining is \(client.remainingUploads)")
     }
     
-    func didFinishUpload(id: UUID, url: URL, client: TUSClient) {
+    func didFinishUpload(id: UUID, url: URL) {
         print("TUSClient finished upload, id is \(id) url is \(url)")
-        print("TUSClient remaining is \(client.remainingUploads)")
-        if client.remainingUploads == 0 {
-            print("Finished uploading")
-        }
     }
     
-    func uploadFailed(id: UUID, error: Error, client: TUSClient) {
+    func uploadFailed(id: UUID, error: Error) {
         print("TUSClient upload failed for \(id) error \(error)")
     }
     
@@ -88,14 +83,14 @@ To upload a single stored file, retrieve a file path and pass it to the client.
 
 ```swift
 let pathToFile:URL = ...
-let uploadId = try tusClient.uploadFileAt(filePath: pathToFile)
+let uploadId = try tusClient.uploadFile(filePath: pathToFile)
 ```
 
 To upload multiple files at once, you can use the `uploadFiles(filePaths:)` method.
 
 ## Custom upload URL and custom headers
 
-To specify a custom upload URL (e.g. for TransloadIt) or custom headers to be added to a file upload, please refer to the `uploadURL` and `customHeaders` properties in the methods related to uploading. Such as: `upload`, `uploadFileAt`, `uploadFiles` or `uploadMultiple(dataFiles:)`.
+To specify a custom upload URL (e.g. for TransloadIt) or custom headers to be added to a file upload, please refer to the `uploadURL` and `customHeaders` properties in the methods related to uploading. Such as: `upload`, `uploadFile` or `uploadMultiple(dataFiles:)`.
 
 ## Measuring upload progress
 
@@ -132,21 +127,7 @@ For instance, here is how you can initialize the client and check its failed upl
   
 tusClient = TUSClient(server: URL(string: "https://tusd.tusdemo.net/files")!, sessionIdentifier: "TUS DEMO", storageDirectory: URL(string: "/TUS")!)
 tusClient.delegate = self
-tusClient.start()
-        
-do {
-  // When starting, you can retrieve the locally stored uploads that are marked as failure, and handle those.
-  // E.g. Maybe some uploads failed from a last session, or failed from a background upload.
-  let ids = try tusClient.failedUploadIds()
-  for id in ids {
-    // You can either retry a failed upload...
-    try tusClient.retry(id: id)
-    // ...alternatively, you can delete them too
-    // tusClient.removeCacheFor(id: id)
-  }
-} catch {
-  // Could not fetch failed id's from disk
-}
+tusClient.startTasks(for: nil)
 
 ```
 

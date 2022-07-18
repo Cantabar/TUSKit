@@ -9,17 +9,17 @@ import Foundation
 
 /// Ignore print statements in release build
 public func print(_ object: Any...) {
-    #if DEBUG
+#if PRINT_ENABLED
     for item in object {
         Swift.print(item)
     }
-    #endif
+#endif
 }
 
 /// Ignore print statements in release build
 public func print(_ object: Any) {
-    #if DEBUG
+#if PRINT_ENABLED
     Swift.print(object)
-    #endif
+#endif
 }
 
