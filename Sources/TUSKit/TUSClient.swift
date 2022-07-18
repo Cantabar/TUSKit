@@ -194,7 +194,7 @@ public final class TUSClient: NSObject {
     /// - Returns: ANn id
     /// - Throws: TUSClientError
     @discardableResult
-    public func uploadFile(filePath: URL, uploadURL: URL? = nil, customHeaders: [String: String] = [:], context: [String: String]? = nil, startNow: Bool = true) throws -> UUID {
+    public func uploadFile(filePath: URL, uploadURL: URL? = nil, customHeaders: [String: String] = [:], context: [String: String]? = nil) throws -> UUID {
         do {
             let id = UUID()
             
@@ -256,8 +256,7 @@ public final class TUSClient: NSObject {
                     filePath: fileToBeUploaded,
                     uploadURL: URL(string: endpoint)!,
                     customHeaders: headers,
-                    context: metadata,
-                    startNow: false
+                    context: metadata
                 )
                 let uploadResult = [
                     "status": "success",
