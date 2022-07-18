@@ -232,7 +232,7 @@ public final class TUSClient: NSObject {
     @discardableResult
     public func resume() {
         self.isPaused = false
-        self.startTasks(for: nil)
+        self.startTasks(for: nil, processFailedItemsIfEmpty: true)
     }
     
     // MARK: - Cache
@@ -358,7 +358,7 @@ public final class TUSClient: NSObject {
     }
     
     private func getChunkSize(for metadata: UploadMetadata) throws -> Int {
-        let fileName = "\(metadata.currentChunk).\(metadata.fileExtension)"
+        let fileName = "\(metadata.truncatedFileName ?? "\(metadata.currentChunk).\(metadata.fileExtension)")"
         let filePath = metadata.fileDir.appendingPathComponent(fileName)
         return try files!.getFileSize(filePath: filePath)
     }
@@ -544,8 +544,17 @@ public final class TUSClient: NSObject {
     }
     
     private func processStatusTaskResult(for id: String, response: HTTPURLResponse) {
-        print("Processing StatusTask result for \(id)")
+        print("-----\nProcessing StatusTask result for \(id)")
         do {
+            // Load metadata from disk
+            let metaData = try loadMetadata(for: id)
+            
+            // If status code is 404, either do creation task or remove file
+            if(response.statusCode == 404) {
+                processFinishedFile(for: metaData)
+                return
+            }
+            
             guard let length = response.uploadLengthHeader() else {
                 throw TUSAPIError.couldNotFetchStatus
             }
@@ -553,10 +562,6 @@ public final class TUSClient: NSObject {
             guard let serverExpectedOffset = response.uploadOffsetHeader() else {
                 throw TUSAPIError.couldNotFetchStatus
             }
-            
-            
-            // Load metadata from disk
-            let metaData = try loadMetadata(for: id)
             
             if length != metaData.size {
                 throw TUSClientError.fileSizeMismatchWithServer
@@ -576,7 +581,7 @@ public final class TUSClient: NSObject {
                 var currentChunkFileSize = try getChunkSize(for: metaData)
                 var clientExpectedOffset = metaData.currentChunk * metaData.chunkSize + metaData.truncatedOffset
                 
-                print("-----Starting UploadTask\nID: \(id)\nCHUNK: \(metaData.currentChunk)\nSERVER EXPECTED OFFSET: \(serverExpectedOffset)\nCLIENT EXPECTED OFFSET \(clientExpectedOffset)\nCURRENT CHUNK FILESIZE: \(currentChunkFileSize)\nTOTAL FILE SIZE: \(metaData.size)\n------")
+                print("Starting UploadTask\nID: \(id)\nCHUNK: \(metaData.currentChunk)\nSERVER EXPECTED OFFSET: \(serverExpectedOffset)\nCLIENT EXPECTED OFFSET \(clientExpectedOffset)\nCURRENT CHUNK FILESIZE: \(currentChunkFileSize)\nTOTAL FILE SIZE: \(metaData.size)\n------")
                 
                 try files?.printFileDirContents(url: metaData.fileDir)
                 
@@ -596,6 +601,29 @@ public final class TUSClient: NSObject {
                     currentChunkFileSize = try getChunkSize(for: metaData)
                     clientExpectedOffset = metaData.currentChunk * metaData.chunkSize + metaData.truncatedOffset
                 }
+                // Handle client thinking server received it but it didnt
+                else if serverExpectedOffset < clientExpectedOffset {
+                    var correctChunk = 0
+                    var byteCounter = 0
+                    while(byteCounter < serverExpectedOffset) {
+                        byteCounter += metaData.chunkSize
+                        correctChunk += 1
+                    }
+                    
+                    // Need to either rechunk the file correctly or reset to original file
+                    if correctChunk == metaData.currentChunk {
+                        if serverExpectedOffset == (metaData.chunkSize * metaData.currentChunk) {
+                            metaData.truncatedFileName = nil
+                            metaData.truncatedOffset = 0
+                            try saveMetadata(metaData: metaData)
+                            
+                            currentChunkFileSize = try getChunkSize(for: metaData)
+                            clientExpectedOffset = serverExpectedOffset
+                        } else {
+                            // @TODO rechunk the file correctly
+                        }
+                    }
+                }
                 
                 // If client and server have incorrect offsets then we may need to adjust file size
                 if clientExpectedOffset < serverExpectedOffset {
@@ -611,13 +639,13 @@ public final class TUSClient: NSObject {
             }
             
         } catch let error {
-            processFailedTask(for: id, errorMessage: error.localizedDescription)
+            processFailedTask(for: id, errorMessage: "\(error.localizedDescription) - status code: \(response.statusCode)\n-----")
         }
     }
     
     
     private func processUploadTaskResult(for id: String, response: HTTPURLResponse) {
-        print("Processing UploadTask result for \(id)")
+        print("-----\nProcessing UploadTask result for \(id)")
         do {
             // Load metadata from disk
             let metaData = try loadMetadata(for: id)
@@ -667,10 +695,10 @@ public final class TUSClient: NSObject {
             
             // Upload remainder of file
             let currentChunkFileSize = try getChunkSize(for: metaData)
-            print("Uploading next \(currentChunkFileSize) bytes for \(metaData.id.uuidString)")
+            print("Uploading next \(currentChunkFileSize) bytes for \(metaData.id.uuidString)\n-----")
             api!.getUploadTask(metaData: metaData, currentChunkFileSize: currentChunkFileSize).resume()
         } catch let error {
-            processFailedTask(for: id, errorMessage: "\(error.localizedDescription) - status code: \(response.statusCode)")
+            processFailedTask(for: id, errorMessage: "\(error.localizedDescription) - status code: \(response.statusCode)\n-----")
         }
     }
     
@@ -719,7 +747,7 @@ public final class TUSClient: NSObject {
             try files?.removeFile(metaData)
             
             // Make sure maximum tasks are running if any exist
-            startTasks(for: nil)
+            startTasks(for: nil, processFailedItemsIfEmpty: true)
         } catch let error {
             delegate?.fileError(id: metaData.id.uuidString, errorMessage: error.localizedDescription)
         }
