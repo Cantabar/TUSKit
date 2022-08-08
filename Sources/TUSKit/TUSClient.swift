@@ -79,9 +79,6 @@ public final class TUSClient: NSObject {
     /// Used to determine how many concurrent tasks should run
     private let networkMonitor = NetworkMonitor.shared
 
-    /// Prevent more than 50 files from every being processed at once in an uploadFiles call to avoid memory spike
-    private let uploadFileRequestSemaphore = DispatchSemaphore(value: 25)
-
     
     /// Initialize a TUSClient
     /// - Parameters:
@@ -255,7 +252,6 @@ public final class TUSClient: NSObject {
             let metadata = options["metadata"]! as? [String: String] ?? [:]
             
             do {
-                uploadFileRequestSemaphore.wait()
                 let uploadId = try self.uploadFile(
                     filePath: fileToBeUploaded,
                     uploadURL: URL(string: endpoint)!,
@@ -268,7 +264,6 @@ public final class TUSClient: NSObject {
                     "fileUrl": fileUrl
                 ]
                 uploads += [uploadResult]
-                uploadFileRequestSemaphore.signal()
             } catch {
                 print("Unable to create upload: \(error)")
                 let uploadResult = [
@@ -278,7 +273,6 @@ public final class TUSClient: NSObject {
                     "fileUrl": fileUrl
                 ]
                 uploads += [uploadResult]
-                uploadFileRequestSemaphore.signal()
             }
         }
         
