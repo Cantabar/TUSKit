@@ -848,6 +848,12 @@ extension TUSClient: URLSessionTaskDelegate {
                 processFailedTask(for: taskDescription.uuid, errorMessage: error.localizedDescription)
                 return
             }
+
+            // No response
+            if task.response == nil {
+                processFailedTask(for: taskDescription.uuid, errorMessage: "Failed to obtain response")
+                return
+            }
             
             // Success
             switch taskDescription.taskType {
