@@ -10,7 +10,28 @@ import TUSKit
 import XCTest
 
 /// TUSClientDelegate to support testing
+@available(iOS 13.4, *)
 final class TUSMockDelegate: TUSClientDelegate {
+    func didFinishUpload(id: UUID, context: [String : String]?) {
+        
+    }
+    
+    func uploadFailed(id: UUID, error: String, context: [String : String]?) {
+        
+    }
+    
+    func fileError(id: String, errorMessage: String) {
+        
+    }
+    
+    func cancelFinished(errorMessage: String?) {
+        
+    }
+    
+    func progressFor(id: UUID, context: [String : String]?, bytesUploaded: Int, totalBytes: Int) {
+        
+    }
+    
   
     var initializedUploads = [UUID]()
     var startedUploads = [UUID]()

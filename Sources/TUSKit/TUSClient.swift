@@ -79,6 +79,9 @@ public final class TUSClient: NSObject {
     /// Used to determine how many concurrent tasks should run
     private let networkMonitor = NetworkMonitor.shared
 
+    /// Prevent more than 50 files from every being processed at once in an uploadFiles call to avoid memory spike
+    private let uploadFileRequestSemaphore = DispatchSemaphore(value: 25)
+
     
     /// Initialize a TUSClient
     /// - Parameters:
@@ -159,7 +162,7 @@ public final class TUSClient: NSObject {
         }
     }
 
-    /// Returns info for debugging 
+    /// Returns info for debugging
     /// - scheduler's pending tasks
     /// - scheduler's running tasks
     /// - api's maximum / current concurrent running uploads
@@ -252,6 +255,7 @@ public final class TUSClient: NSObject {
             let metadata = options["metadata"]! as? [String: String] ?? [:]
             
             do {
+                uploadFileRequestSemaphore.wait()
                 let uploadId = try self.uploadFile(
                     filePath: fileToBeUploaded,
                     uploadURL: URL(string: endpoint)!,
@@ -264,6 +268,7 @@ public final class TUSClient: NSObject {
                     "fileUrl": fileUrl
                 ]
                 uploads += [uploadResult]
+                uploadFileRequestSemaphore.signal()
             } catch {
                 print("Unable to create upload: \(error)")
                 let uploadResult = [
@@ -273,6 +278,7 @@ public final class TUSClient: NSObject {
                     "fileUrl": fileUrl
                 ]
                 uploads += [uploadResult]
+                uploadFileRequestSemaphore.signal()
             }
         }
         
@@ -324,24 +330,20 @@ public final class TUSClient: NSObject {
     @discardableResult
     public func sync() -> [[String:Any]] {
         print("TUSClient syncing")
-        do {
-            if(updatesToSync.count == 0) {
-                try getUpdatesToSync()
-            }
-            let updates = updatesToSync.map { update in
-                return [
-                  "id": "\(update.id)",
-                  "bytesUploaded": update.bytesUploaded,
-                  "size": update.size,
-                  "isError": update.errorCount >= retryCount,
-                  "name": update.name
-                ]
-            }
-            updatesToSync.removeAll()
-            return updates
-        } catch let error {
-            return []
+        if(updatesToSync.count == 0) {
+            getUpdatesToSync()
         }
+        let updates = updatesToSync.map { update in
+            return [
+              "id": "\(update.id)",
+              "bytesUploaded": update.bytesUploaded,
+              "size": update.size,
+              "isError": update.errorCount >= retryCount,
+              "name": update.name
+            ]
+        }
+        updatesToSync.removeAll()
+        return updates
     }
     
     // MARK: - Private
@@ -544,7 +546,7 @@ public final class TUSClient: NSObject {
             return
         }
         
-        if(metaData == nil || metaData.isFinished) {
+        if(metaData.isFinished) {
             //print("startTask metadata is nil or finished")
             return
         }
@@ -556,15 +558,10 @@ public final class TUSClient: NSObject {
         }
         uploadTasksRunning += 1
         
-        do {
-            if let remoteDestination = metaData.remoteDestination {
-                try api!.getStatusTask(metaData: metaData).resume()
-            } else {
-                try api!.getCreationTask(metaData: metaData).resume()
-            }
-        } catch let error {
-            uploadTasksRunning -= 1
-            throw error
+        if metaData.remoteDestination != nil {
+            api!.getStatusTask(metaData: metaData).resume()
+        } else {
+            api!.getCreationTask(metaData: metaData).resume()
         }
     }
     
@@ -880,7 +877,7 @@ extension TUSClient: URLSessionTaskDelegate {
                     return
                 }
                 processFailedTask(for: taskDescription.uuid, errorMessage: error.localizedDescription)
-            } catch let _ {
+            } catch _ {
                 // @todo handle horrible error here
             }
         }

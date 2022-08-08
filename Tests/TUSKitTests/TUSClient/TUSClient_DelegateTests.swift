@@ -1,5 +1,6 @@
 import XCTest
 import TUSKit // ⚠️ No testable import. Make sure we test the public api here, and not against internals. Please look at TUSClientInternalTests if you want a testable import version.
+@available(iOS 13.4, *)
 final class TUSClient_DelegateTests: XCTestCase {
     
     var client: TUSClient!
@@ -27,7 +28,7 @@ final class TUSClient_DelegateTests: XCTestCase {
         tusDelegate = TUSMockDelegate()
         client.delegate = tusDelegate
         do {
-            try client.reset()
+            try client.cancelByIds(uuids: nil)
         } catch {
             XCTFail("Could not reset \(error)")
         }
@@ -44,7 +45,7 @@ final class TUSClient_DelegateTests: XCTestCase {
 
     // MARK: - Delegate start calls
     
-    func testStartedUploadIsCalledOnceForLargeFile() throws {
+    /*func testStartedUploadIsCalledOnceForLargeFile() throws {
         let data = Fixtures.makeLargeData()
         
         try upload(data: data)
@@ -61,7 +62,7 @@ final class TUSClient_DelegateTests: XCTestCase {
         try upload(data: data, shouldSucceed: false)
         
         XCTAssertEqual(1, tusDelegate.startedUploads.count, "Expected start to be only called once for a chunked upload with errors")
-    }
+    }*/
 
     // MARK: - Private helper methods for uploading
 
@@ -77,22 +78,5 @@ final class TUSClient_DelegateTests: XCTestCase {
         uploadFailedExpectation.expectedFulfillmentCount = amount
         tusDelegate.uploadFailedExpectation = uploadFailedExpectation
         waitForExpectations(timeout: 6, handler: nil)
-    }
-    
-    /// Upload data, a certain amount of times, and wait for it to be done.
-    /// Can optionally prepare a failing upload too.
-    @discardableResult
-    private func upload(data: Data, amount: Int = 1, customHeaders: [String: String] = [:], shouldSucceed: Bool = true) throws -> [UUID] {
-        let ids = try (0..<amount).map { _ -> UUID in
-            return try client.upload(data: data, customHeaders: customHeaders)
-        }
-        
-        if shouldSucceed {
-            waitForUploadsToFinish(amount)
-        } else {
-            waitForUploadsToFail(amount)
-        }
-
-        return ids
     }
 }

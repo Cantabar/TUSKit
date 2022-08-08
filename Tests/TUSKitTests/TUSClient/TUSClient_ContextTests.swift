@@ -1,5 +1,6 @@
 import XCTest
 import TUSKit // ⚠️ No testable import. Make sure we test the public api here, and not against internals. Please look at TUSClientInternalTests if you want a testable import version.
+@available(iOS 13.4, *)
 final class TUSClient_ContextTests: XCTestCase {
     
     var client: TUSClient!
@@ -27,7 +28,7 @@ final class TUSClient_ContextTests: XCTestCase {
         tusDelegate = TUSMockDelegate()
         client.delegate = tusDelegate
         do {
-            try client.reset()
+            try client.cancelByIds(uuids: nil)
         } catch {
             XCTFail("Could not reset \(error)")
         }
@@ -37,33 +38,26 @@ final class TUSClient_ContextTests: XCTestCase {
     
     override func tearDown() {
         super.tearDown()
-        client.stopAndCancelAll()
+        do {
+            try client.cancelByIds(uuids: nil)
+        } catch {
+            
+        }
         clearDirectory(dir: fullStoragePath)
     }
     
     // These tests are here to make sure you get the same context back that you passed to upload.
     
-    func testContextIsReturnedAfterUploading() throws {
+    /*func testContextIsReturnedAfterUploading() throws {
         let expectedContext = ["I am a key" : "I am a value"]
         try client.upload(data: data, context: expectedContext)
         
         waitForUploadsToFinish()
         
         XCTAssertEqual(tusDelegate.receivedContexts, Array(repeatElement(expectedContext, count: 3)),  "Expected the context to be returned once an upload is finished")
-    }
+    }*/
     
-    func testContextIsReturnedAfterUploadingMultipleFiles() throws {
-        let expectedContext = ["I am a key" : "I am a value"]
-        
-        try client.uploadMultiple(dataFiles: [data, data], context: expectedContext)
-        
-        waitForUploadsToFinish(2)
-        
-        // Two contexts for start, two for failure
-        XCTAssertEqual(tusDelegate.receivedContexts, Array(repeatElement(expectedContext, count: 6)), "Expected the context to be returned once an upload is finished")
-    }
-    
-    func testContextIsReturnedAfterUploadingMultipleFilePaths() throws {
+    /*func testContextIsReturnedAfterUploadingMultipleFilePaths() throws {
         let expectedContext = ["I am a key" : "I am a value"]
         
         let path = try Fixtures.makeFilePath()
@@ -101,7 +95,7 @@ final class TUSClient_ContextTests: XCTestCase {
         waitForExpectations(timeout: 5, handler: nil)
         // Expected the context 4 times. Two files on start, two files on error.
         XCTAssert(tusDelegate.receivedContexts.contains(expectedContext))
-    }
+    }*/
     
     // MARK: - Private helper methods for uploading
 
@@ -121,7 +115,7 @@ final class TUSClient_ContextTests: XCTestCase {
     
     /// Upload data, a certain amount of times, and wait for it to be done.
     /// Can optionally prepare a failing upload too.
-    @discardableResult
+   /* @discardableResult
     private func upload(data: Data, amount: Int = 1, customHeaders: [String: String] = [:], shouldSucceed: Bool = true) throws -> [UUID] {
         let ids = try (0..<amount).map { _ -> UUID in
             return try client.upload(data: data, customHeaders: customHeaders)
@@ -134,5 +128,5 @@ final class TUSClient_ContextTests: XCTestCase {
         }
 
         return ids
-    }
+    }*/
 }

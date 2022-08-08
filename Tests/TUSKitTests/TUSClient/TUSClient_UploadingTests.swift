@@ -1,5 +1,6 @@
 import XCTest
 import TUSKit // ⚠️ No testable import. Make sure we test the public api here, and not against internals. Please look at TUSClientInternalTests if you want a testable import version.
+@available(iOS 13.4, *)
 final class TUSClient_UploadingTests: XCTestCase {
     
     var client: TUSClient!
@@ -27,7 +28,7 @@ final class TUSClient_UploadingTests: XCTestCase {
         tusDelegate = TUSMockDelegate()
         client.delegate = tusDelegate
         do {
-            try client.reset()
+            try client.cancelByIds(uuids: nil)
         } catch {
             XCTFail("Could not reset \(error)")
         }
@@ -43,16 +44,16 @@ final class TUSClient_UploadingTests: XCTestCase {
     
     func testUploadingNonExistentFileShouldThrow() {
         let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("thisfiledoesntexist.jpg")
-        XCTAssertThrowsError(try client.uploadFileAt(filePath: fileURL), "If a file doesn't exist, the client should throw a message right when an uploadTask is triggered")
+        XCTAssertThrowsError(try client.uploadFile(filePath: fileURL), "If a file doesn't exist, the client should throw a message right when an uploadTask is triggered")
     }
     
     func testUploadingExistingFile() {
-        try XCTAssertNoThrow(client.uploadFileAt(filePath: Fixtures.makeFilePath()), "TUSClient should accept files that exist")
+        try XCTAssertNoThrow(client.uploadFile(filePath: Fixtures.makeFilePath()), "TUSClient should accept files that exist")
     }
     
-    func testUploadingValidData() throws {
+    /*func testUploadingValidData() throws {
         XCTAssertNoThrow(try client.upload(data: Fixtures.loadData()))
-    }
+    }*/
     
     func testCantUploadEmptyFile() throws {
         let docDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -60,16 +61,11 @@ final class TUSClient_UploadingTests: XCTestCase {
         let data = Data()
         try data.write(to: targetLocation)
         
-        try XCTAssertThrowsError(client.uploadFileAt(filePath: targetLocation))
-    }
-    
-    func testCantUploadEmptyData() {
-        let data = Data()
-        try XCTAssertThrowsError(client.upload(data: data))
+        try XCTAssertThrowsError(client.uploadFile(filePath: targetLocation))
     }
         // MARK: - Chunking
     
-    func testSmallUploadsArentChunked() throws {
+   /* func testSmallUploadsArentChunked() throws {
         let ids = try upload(data: Data("012345678".utf8))
         XCTAssertEqual(1, ids.count)
         XCTAssertEqual(2, MockURLProtocol.receivedRequests.count)
@@ -146,20 +142,20 @@ final class TUSClient_UploadingTests: XCTestCase {
     
     // MARK: - Custom URLs
     
-    func testUploadingToCustomURL() throws {
+   /* func testUploadingToCustomURL() throws {
         let url = URL(string: "www.custom-url")!
         try client.upload(data: data, uploadURL: url)
         waitForUploadsToFinish(1)
         let uploadRequests = MockURLProtocol.receivedRequests.filter { $0.httpMethod == "POST" }
         XCTAssertEqual(url, uploadRequests.first?.url)
-    }
+    }*/
     
     // MARK: - Responses
     
     func testMakeSureClientCanHandleLowerCaseKeysInResponses() throws {
         prepareNetworkForSuccesfulUploads(data: data, lowerCasedKeysInResponses: true)
         try upload(data: data)
-    }
+    }*/
 
     // MARK: - Private helper methods for uploading
 
@@ -179,7 +175,7 @@ final class TUSClient_UploadingTests: XCTestCase {
     
     /// Upload data, a certain amount of times, and wait for it to be done.
     /// Can optionally prepare a failing upload too.
-    @discardableResult
+    /*@discardableResult
     private func upload(data: Data, amount: Int = 1, customHeaders: [String: String] = [:], shouldSucceed: Bool = true) throws -> [UUID] {
         let ids = try (0..<amount).map { _ -> UUID in
             return try client.upload(data: data, customHeaders: customHeaders)
@@ -192,7 +188,7 @@ final class TUSClient_UploadingTests: XCTestCase {
         }
 
         return ids
-    }
+    }*/
     
 
 }

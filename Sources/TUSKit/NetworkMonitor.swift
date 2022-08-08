@@ -15,6 +15,7 @@ public enum ConnectionType {
     case unknown
 }
 
+@available(iOS 12.0, *)
 class NetworkMonitor {
     static public let shared = NetworkMonitor()
     private var monitor: NWPathMonitor

@@ -16,7 +16,7 @@ final class FilesTests: XCTestCase {
     
     override func tearDown() {
         do {
-            try files.clearCacheInStorageDirectory()
+            try files.removeFilesForUuids(nil)
             try emptyCacheDir()
         } catch {
             // Okay if dir doesn't exist
@@ -71,51 +71,11 @@ final class FilesTests: XCTestCase {
             }
         }
     }
-    
-    func testCopyingFileFromURL() throws {
-        let path = try Fixtures.makeFilePath()
-        let id = UUID()
-        let url = try files.copy(from: path, id: id)
-        
-        XCTAssert(url.lastPathComponent.contains(id.uuidString), "Expected path to contain id")
-        
-        let _ = try Data(contentsOf: url)
-    }
-    
-    func testStoringData() throws {
-        let id = UUID()
-        let url = try files.store(data: Fixtures.loadData(), id: id)
-        XCTAssert(url.lastPathComponent.contains(id.uuidString), "Expected path to contain id")
-        let _ = try Data(contentsOf: url)
-    }
-    
-    func testCanCopyMultipleFilesWithSameName() throws {
-        // Make sure that a filename isn't reused and that you can upload the same file multiple times.
-        let path = try Fixtures.makeFilePath()
-        let expectedIds = (0..<2).map { _ in UUID() }
-        let ids = try expectedIds.map { id in
-            try files.copy(from: path, id: id)
-        }
-        
-        XCTAssertEqual(Set(ids).count,ids.count, "Expected unique ids for all fiels")
-    }
-    
-    func testCantSaveMultipleFilesWithSameId() throws {
-        let id = UUID()
-        
-        let path = try Fixtures.makeFilePath()
-        
-        try files.copy(from: path, id: id)
-        XCTAssertThrowsError(try files.copy(from: path, id: id))
-    }
-    
-    func testCantStoreEmptyData() throws {
-        XCTAssertThrowsError(try files.store(data: Data(), id: UUID()))
-    }
-    
+
+
     func testCheckMetadataHasWrongFilepath() throws {
         // TODO: Changing file url, and then storing it, and retrieving it, should have same fileurl as the metadata path again. E.g. if doc dir changed
-        let metaData = UploadMetadata(id: UUID(), filePath: URL(string: "abc")!, uploadURL: URL(string: "www.not-a-file-path.com")!, size: 300)
+        let metaData = UploadMetadata(id: UUID(), fileDir: URL(string: "abc")!, uploadURL: URL(string: "www.not-a-file-path.com")!, size: 300, chunkSize: 3 * 1024, fileExtension: ".png")
         XCTAssertThrowsError(try files.encodeAndStore(metaData: metaData), "Expected Files to catch unknown file")
     }
     
@@ -135,7 +95,7 @@ final class FilesTests: XCTestCase {
             // We are intentionally storing a file to cache dir (which is not expected).
             // But we store the metadata in the files' storagedirectory
             
-            let metaData = UploadMetadata(id: UUID(), filePath: filePath, uploadURL: URL(string: "www.tus.io")!, size: 5)
+            let metaData = UploadMetadata(id: UUID(), fileDir: filePath, uploadURL: URL(string: "www.tus.io")!, size: 5, chunkSize: 1024 * 3, fileExtension: ".png")
             
             let targetLocation = files.storageDirectory.appendingPathComponent(filePath.lastPathComponent).appendingPathExtension("plist")
             
@@ -147,7 +107,7 @@ final class FilesTests: XCTestCase {
         
         let fileLocation = try writeDummyFileToCacheDir()
         let targetLocation = try storeMetaData(filePath: fileLocation)
-        let allMetadata = try files.loadAllMetadata()
+        let allMetadata = try files.loadAllMetadata(nil)
         
         guard !allMetadata.isEmpty else {
             XCTFail("Expected metadata to be retrieved")
@@ -159,18 +119,9 @@ final class FilesTests: XCTestCase {
         
         let expectedLocation = targetLocation.deletingPathExtension()
         let retrievedMetaData = allMetadata[0]
-        XCTAssertEqual(expectedLocation, retrievedMetaData.filePath)
+        XCTAssertEqual(expectedLocation, retrievedMetaData.fileDir)
         
         // Clean up metadata. Doing it here because normally cleaning up metadata also cleans up a file. But we don't have a file to clean up.
         try FileManager.default.removeItem(at: targetLocation)
     }
-    
-    func testMakeSureFileIdIsSameAsStoredName() throws {
-//         A file is stored under a UUID, this must be the same as the metadata's id
-        let id = UUID()
-        let url = try files.store(data: Data("abc".utf8), id: id)
-        XCTAssertEqual(id.uuidString, url.lastPathComponent)
-        XCTAssert(FileManager.default.fileExists(atPath: url.path))
-    }
-   
 }

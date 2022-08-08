@@ -1,5 +1,6 @@
 import XCTest
 import TUSKit // ⚠️ No testable import. Make sure we test the public api here, and not against internals. Please look at TUSClientInternalTests if you want a testable import version.
+@available(iOS 13.4, *)
 final class TUSClient_CustomHeadersTests: XCTestCase {
     
     var client: TUSClient!
@@ -27,7 +28,7 @@ final class TUSClient_CustomHeadersTests: XCTestCase {
         tusDelegate = TUSMockDelegate()
         client.delegate = tusDelegate
         do {
-            try client.reset()
+            try client.cancelByIds(uuids: nil)
         } catch {
             XCTFail("Could not reset \(error)")
         }
@@ -62,7 +63,7 @@ final class TUSClient_CustomHeadersTests: XCTestCase {
         let startedExpectation = expectation(description: "Waiting for uploads to start")
         tusDelegate.startUploadExpectation = startedExpectation
         
-        try client.uploadFileAt(filePath: location, customHeaders: customHeaders)
+        try client.uploadFile(filePath: location, customHeaders: customHeaders)
         wait(for: [startedExpectation], timeout: 5)
         
         // Validate
