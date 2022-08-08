@@ -11,10 +11,10 @@ import UIKit
 @available(iOS 13.4, macOS 10.13, *)
 public protocol TUSClientDelegate: AnyObject {
     /// `TUSClient` just finished an upload, returns the URL of the uploaded file.
-    func didFinishUpload(id: UUID, context: [String: String]?)
+    func didFinishUpload(id: UUID)
     
     /// An upload failed. Returns an error. Could either be a TUSClientError or a networking related error.
-    func uploadFailed(id: UUID, error: String, context: [String: String]?)
+    func uploadFailed(id: UUID, error: String)
     
     /// Receive an error related to files. E.g. The `TUSClient` couldn't store a file or remove a file.
     func fileError(id: String, errorMessage: String)
@@ -23,7 +23,7 @@ public protocol TUSClientDelegate: AnyObject {
     func cancelFinished(errorMessage: String?)
 
     /// Get the progress of a specific upload by id. The id is given when adding an upload and methods of this delegate.
-    func progressFor(id: UUID, context: [String: String]?, bytesUploaded: Int, totalBytes: Int)
+    func progressFor(id: UUID, bytesUploaded: Int, totalBytes: Int)
 }
 
 
@@ -159,7 +159,7 @@ public final class TUSClient: NSObject {
         }
     }
 
-    /// Returns info for debugging 
+    /// Returns info for debugging
     /// - scheduler's pending tasks
     /// - scheduler's running tasks
     /// - api's maximum / current concurrent running uploads
@@ -324,24 +324,20 @@ public final class TUSClient: NSObject {
     @discardableResult
     public func sync() -> [[String:Any]] {
         print("TUSClient syncing")
-        do {
-            if(updatesToSync.count == 0) {
-                try getUpdatesToSync()
-            }
-            let updates = updatesToSync.map { update in
-                return [
-                  "id": "\(update.id)",
-                  "bytesUploaded": update.bytesUploaded,
-                  "size": update.size,
-                  "isError": update.errorCount >= retryCount,
-                  "name": update.name
-                ]
-            }
-            updatesToSync.removeAll()
-            return updates
-        } catch let error {
-            return []
+        if(updatesToSync.count == 0) {
+            getUpdatesToSync()
         }
+        let updates = updatesToSync.map { update in
+            return [
+              "id": "\(update.id)",
+              "bytesUploaded": update.bytesUploaded,
+              "size": update.size,
+              "isError": update.errorCount >= retryCount,
+              "name": update.name
+            ]
+        }
+        updatesToSync.removeAll()
+        return updates
     }
     
     // MARK: - Private
@@ -544,7 +540,7 @@ public final class TUSClient: NSObject {
             return
         }
         
-        if(metaData == nil || metaData.isFinished) {
+        if(metaData.isFinished) {
             //print("startTask metadata is nil or finished")
             return
         }
@@ -556,15 +552,10 @@ public final class TUSClient: NSObject {
         }
         uploadTasksRunning += 1
         
-        do {
-            if let remoteDestination = metaData.remoteDestination {
-                try api!.getStatusTask(metaData: metaData).resume()
-            } else {
-                try api!.getCreationTask(metaData: metaData).resume()
-            }
-        } catch let error {
-            uploadTasksRunning -= 1
-            throw error
+        if metaData.remoteDestination != nil {
+            api!.getStatusTask(metaData: metaData).resume()
+        } else {
+            api!.getCreationTask(metaData: metaData).resume()
         }
     }
     
@@ -733,7 +724,7 @@ public final class TUSClient: NSObject {
                 throw TUSClientError.receivedUnexpectedOffset
             }
             
-            delegate?.progressFor(id: metaData.id, context: metaData.context, bytesUploaded: metaData.uploadedRange?.upperBound ?? 0, totalBytes: metaData.size)
+            delegate?.progressFor(id: metaData.id, bytesUploaded: metaData.uploadedRange?.upperBound ?? 0, totalBytes: metaData.size)
             
             var nextRange: Range<Int>? = nil
             if let range = metaData.uploadedRange {
@@ -780,11 +771,11 @@ public final class TUSClient: NSObject {
                 }
                 catch let otherError {
                     startTasks(for: nil)
-                    delegate?.uploadFailed(id: metaData.id, error: otherError.localizedDescription, context: metaData.context)
+                    delegate?.uploadFailed(id: metaData.id, error: otherError.localizedDescription)
                 }
             } else { // Exhausted all retries, reporting back as failure.
                 startTasks(for: nil)
-                delegate?.uploadFailed(id: metaData.id, error: errorMessage, context: metaData.context)
+                delegate?.uploadFailed(id: metaData.id, error: errorMessage)
             }
         } catch let fileError {
             startTasks(for: nil)
@@ -807,7 +798,7 @@ public final class TUSClient: NSObject {
         } catch let error {
             delegate?.fileError(id: metaData.id.uuidString, errorMessage: error.localizedDescription)
         }
-        delegate?.didFinishUpload(id: metaData.id, context: metaData.context)
+        delegate?.didFinishUpload(id: metaData.id)
     }
 }
 
@@ -880,7 +871,7 @@ extension TUSClient: URLSessionTaskDelegate {
                     return
                 }
                 processFailedTask(for: taskDescription.uuid, errorMessage: error.localizedDescription)
-            } catch let _ {
+            } catch _ {
                 // @todo handle horrible error here
             }
         }
