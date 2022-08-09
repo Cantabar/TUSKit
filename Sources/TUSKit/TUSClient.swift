@@ -44,6 +44,8 @@ public final class TUSClient: NSObject {
     /// How long to delay the retry. This is intended to allow the server time to realize the connection has broken. Expected time in milliseconds.
     private let retryDelay = 500
     
+    /// When true will prevent tasks from running, useful for clearing memory
+    private var isSessionInvalidated: Bool = true
     public var sessionIdentifier: String = ""
     private var session: URLSession? = nil
     private var files: Files? = nil
@@ -93,26 +95,12 @@ public final class TUSClient: NSObject {
     public init(server: URL, sessionIdentifier: String, storageDirectory: URL? = nil, chunkSize: Int = 500 * 1024, maxConcurrentUploadsWifi: Int = 100, maxConcurrentUploadsNoWifi: Int = 100, backgroundSessionCompletionHandler: (() -> Void)?) throws {
         super.init()
         
-        func initSession() {
-            // https://developer.apple.com/documentation/foundation/url_loading_system/downloading_files_in_the_background
-            self.sessionIdentifier = sessionIdentifier
-            self.maxConcurrentUploadsWifi = maxConcurrentUploadsWifi
-            self.maxConcurrentUploadsNoWifi = maxConcurrentUploadsNoWifi
-            self.backgroundSessionCompletionHandler = backgroundSessionCompletionHandler
-            
-            let urlSessionConfig = URLSessionConfiguration.background(withIdentifier: sessionIdentifier)
-            // Restrict maximum parallel connections to 2
-            urlSessionConfig.httpMaximumConnectionsPerHost = 2
-            // 60 Second timeout (resets if data transmitted)
-            urlSessionConfig.timeoutIntervalForRequest = TimeInterval(self.timeoutSeconds)
-            // Wait for connection instead of failing immediately
-            urlSessionConfig.waitsForConnectivity = true
-            // Don't let system decide when to start the task
-            urlSessionConfig.isDiscretionary = false
-            // Must use delegate and not completion handlers for background URLSessionConfiguration
-            session = URLSession(configuration: urlSessionConfig, delegate: self, delegateQueue: OperationQueue.main)
-        }
-        initSession()
+        self.sessionIdentifier = sessionIdentifier
+        self.maxConcurrentUploadsWifi = maxConcurrentUploadsWifi
+        self.maxConcurrentUploadsNoWifi = maxConcurrentUploadsNoWifi
+        self.backgroundSessionCompletionHandler = backgroundSessionCompletionHandler
+        
+        self.initSession()
         self.api = TUSAPI(session: self.session!)
         self.files = try Files(storageDirectory: storageDirectory)
         self.serverURL = server
@@ -127,6 +115,23 @@ public final class TUSClient: NSObject {
     
     deinit {
         self.networkMonitor.stop()
+    }
+
+    func initSession() {
+        // https://developer.apple.com/documentation/foundation/url_loading_system/downloading_files_in_the_background
+        let urlSessionConfig = URLSessionConfiguration.background(withIdentifier: sessionIdentifier)
+        // Restrict maximum parallel connections to 2
+        urlSessionConfig.httpMaximumConnectionsPerHost = 2
+        // 60 Second timeout (resets if data transmitted)
+        urlSessionConfig.timeoutIntervalForRequest = TimeInterval(self.timeoutSeconds)
+        // Wait for connection instead of failing immediately
+        urlSessionConfig.waitsForConnectivity = true
+        // Don't let system decide when to start the task
+        urlSessionConfig.isDiscretionary = false
+        // Must use delegate and not completion handlers for background URLSessionConfiguration
+        session = URLSession(configuration: urlSessionConfig, delegate: self, delegateQueue: OperationQueue.main)
+        self.api = TUSAPI(session: self.session!)
+        self.isSessionInvalidated = false
     }
     
     /// Will notify delegate when cancel has finished since URLSession requires completion handler
@@ -280,6 +285,14 @@ public final class TUSClient: NSObject {
         
         return uploads
     }
+
+     @discardableResult
+    public func freeMemory() {
+        if(!isSessionInvalidated) {
+            self.session?.finishTasksAndInvalidate()
+            self.isSessionInvalidated = true
+        }
+    }
     
     /// Pause all new uploads but let already running finish
     @discardableResult
@@ -417,6 +430,10 @@ public final class TUSClient: NSObject {
                 print("isStartingAllTasks unlocked")
             }
             print("TUSClient.startTasks running maximum concurrent tasks")
+            /* When max tasks reached kill session.
+            Then when all currently running tasks before freeMemory was called finish,
+            it will start spawning more tasks (prevents memory leak from large quantity batch uploads) */
+            freeMemory()
             return false
         }
         return true
@@ -436,7 +453,7 @@ public final class TUSClient: NSObject {
     
     /// Check which uploads aren't finished. Load them from a store and turn these into tasks.
     public func startTasks(for uuids: [UUID]?, processFailedItemsIfEmpty: Bool? = false) {
-        if isPaused || isBatchProcessingFile {
+        if isPaused || isBatchProcessingFile || isSessionInvalidated {
             return
         }
         do {
@@ -550,6 +567,12 @@ public final class TUSClient: NSObject {
             //print("startTask is at max concurrent uploads")
             return
         }
+
+         // Prevent using invalidated session
+        if isSessionInvalidated {
+            return
+        }
+
         uploadTasksRunning += 1
         
         if metaData.remoteDestination != nil {
@@ -582,9 +605,12 @@ public final class TUSClient: NSObject {
             metaData.remoteDestination = remoteDestination
             try saveMetadata(metaData: metaData)
             
-            let currentChunkFileSize = try getChunkSize(for: metaData)
-            api!.getUploadTask(metaData: metaData, currentChunkFileSize: currentChunkFileSize).resume()
-            //print("UploadTask started")
+            if !isSessionInvalidated {
+                let currentChunkFileSize = try getChunkSize(for: metaData)
+                api!.getUploadTask(metaData: metaData, currentChunkFileSize: currentChunkFileSize).resume()
+            } else if uploadTasksRunning > 0 {
+                uploadTasksRunning -= 1
+            }
         } catch let error {
             processFailedTask(for: id, errorMessage: error.localizedDescription)
         }
@@ -682,7 +708,11 @@ public final class TUSClient: NSObject {
                     currentChunkFileSize = try getChunkSize(for: metaData)
                 }
                 
-                api!.getUploadTask(metaData: metaData, currentChunkFileSize: currentChunkFileSize).resume()
+                if !isSessionInvalidated {
+                    api!.getUploadTask(metaData: metaData, currentChunkFileSize: currentChunkFileSize).resume()
+                } else if uploadTasksRunning > 0 {
+                    uploadTasksRunning -= 1
+                }
             }
             
         } catch let error {
@@ -743,7 +773,12 @@ public final class TUSClient: NSObject {
             // Upload remainder of file
             let currentChunkFileSize = try getChunkSize(for: metaData)
             //print("Uploading next \(currentChunkFileSize) bytes for \(metaData.id.uuidString)\n-----")
-            api!.getUploadTask(metaData: metaData, currentChunkFileSize: currentChunkFileSize).resume()
+            
+            if !isSessionInvalidated {
+              api!.getUploadTask(metaData: metaData, currentChunkFileSize: currentChunkFileSize).resume()
+            } else if uploadTasksRunning > 0 {
+              uploadTasksRunning -= 1
+            }
         } catch let error {
             processFailedTask(for: id, errorMessage: "\(error.localizedDescription) - status code: \(response.statusCode)\n-----")
         }
@@ -851,6 +886,9 @@ extension TUSClient: URLSessionTaskDelegate {
 
             // No response
             if task.response == nil {
+                if uploadTasksRunning > 0 {
+                    uploadTasksRunning -= 1
+                }
                 processFailedTask(for: taskDescription.uuid, errorMessage: "Failed to obtain response")
                 return
             }
@@ -889,17 +927,26 @@ extension TUSClient: URLSessionTaskDelegate {
 extension TUSClient: URLSessionDelegate {
     /// Called when all running upload tasks have finished and the app is in the background so we can invoke completion handler
     public func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
-        //print("urlSessionDidFinishEvents")
+        print("urlSessionDidFinishEvents")
         DispatchQueue.main.async {
             guard let completionHandler = self.backgroundSessionCompletionHandler else {
                 return
             }
             completionHandler()
         }
+
+        if isSessionInvalidated {
+            self.initSession()
+            self.startTasks(for: nil)
+        }
     }
     
     public func urlSession(_ session: URLSession, didBecomeInvalidWithError error: Error?) {
         print("didBecomeInvalidWithError")
         print(error)
+
+        self.isSessionInvalidated = true
+        self.initSession()
+        self.startTasks(for: nil)
     }
 }
