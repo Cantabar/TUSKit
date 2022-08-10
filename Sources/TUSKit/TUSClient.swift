@@ -334,7 +334,6 @@ public final class TUSClient: NSObject {
     /// This method allows react-native app to sync with the metadata filesystem
     @discardableResult
     public func sync() -> [[String:Any]] {
-        print("TUSClient syncing")
         if(updatesToSync.count == 0) {
             getUpdatesToSync()
         }
@@ -414,10 +413,8 @@ public final class TUSClient: NSObject {
         // Prevent spamming this methodx
         if isFiltered != true {
             if isStartingAllTasks {
-                print("TUSClient.startTasks already running")
                 return false
             }
-            print("isStartingAllTasks locked")
             isStartingAllTasks = true
         }
       
@@ -425,13 +422,12 @@ public final class TUSClient: NSObject {
         if uploadTasksRunning >= maxConcurrentUploads {
             if isFiltered != true {
                 isStartingAllTasks = false
-                print("isStartingAllTasks unlocked")
             }
-            print("TUSClient.startTasks running maximum concurrent tasks")
+            //print("TUSClient.startTasks running maximum concurrent tasks")
             /* When max tasks reached check if we have at least 300 MB left of free memory.
-             If not kill the session.
-            Then when all currently running tasks before freeMemory was called finish,
-            it will start spawning more tasks (prevents memory leak from large quantity batch uploads) */
+             If not kill the session (no more tasks will be spawned until all tasks that were running before freeMemory was called finish).
+             Alleviates memory leak from large quantity batch uploads from URLSession delegate.
+             You may also see this hit max memory while document picker is importing images from external media */
             let bytesAvailable = os_proc_available_memory()
             let megaBytesAvailable = (bytesAvailable  / 1024) / 1024
             if(megaBytesAvailable < 300) {
@@ -446,9 +442,9 @@ public final class TUSClient: NSObject {
         if self.uploadTasksRunning >= self.maxConcurrentUploads {
             if isFiltered != true {
                 self.isStartingAllTasks = false
-                print("isStartingAllTasks unlocked")
+                //print("isStartingAllTasks unlocked")
             }
-            print("TUSClient.startTasks running maximum concurrent tasks")
+            //print("TUSClient.startTasks running maximum concurrent tasks")
             return false
         }
         return true
@@ -480,14 +476,14 @@ public final class TUSClient: NSObject {
             
             // If list exhausted, process failed items queue
             if (metaDataItems?.count ?? 0 == 0) && processFailedItemsIfEmpty == true {
-                print("TUSClient processing failed queue")
+                //print("TUSClient processing failed queue")
                 metaDataItems = failedItems
             }
             
             if metaDataItems?.count ?? 0 > 0 {
                 // Prevent duplicate tasks
                 self.session?.getAllTasks(completionHandler: { [weak self] tasks in
-                    print("Pending tasks count: \(tasks.count)")
+                    //print("Pending tasks count: \(tasks.count)")
                     var uuid: String = ""
                     do {
                         guard let self = self else { return }
@@ -503,9 +499,9 @@ public final class TUSClient: NSObject {
                                     print(error)
                                     if uuids == nil {
                                         self.isStartingAllTasks = false
-                                        print("isStartingAllTasks unlocked")
+                                        //print("isStartingAllTasks unlocked")
                                     }
-                                    print("isStartingAllTasks is still locked")
+                                    //print("isStartingAllTasks is still locked")
                                     return
                                 }
                             }
@@ -529,11 +525,9 @@ public final class TUSClient: NSObject {
                         }
                         
                         self.isStartingAllTasks = false
-                        print("isStartingAllTasks unlocked")
                     } catch let error {
                         if uuids == nil {
                             self?.isStartingAllTasks = false
-                            print("isStartingAllTasks unlocked")
                         }
                         self?.delegate?.fileError(id: uuid, errorMessage: "Start Tasks getAllTasks: \(error.localizedDescription)")
                         print(error)
@@ -541,12 +535,10 @@ public final class TUSClient: NSObject {
                 })
             } else {
                 self.isStartingAllTasks = false
-                print("isStartingAllTasks unlocked")
             }
         } catch (let error) {
             if uuids == nil {
                 isStartingAllTasks = false
-                print("isStartingAllTasks unlocked")
             }
             delegate?.fileError(id: "", errorMessage: "Start Tasks: \(error.localizedDescription)")
         }
@@ -561,13 +553,11 @@ public final class TUSClient: NSObject {
         }
         
         if(metaData.isFinished) {
-            //print("startTask metadata is nil or finished")
             return
         }
         
         // Prevent running a million requests on a multiplexed HTTP/2 connection
         if uploadTasksRunning >= maxConcurrentUploads {
-            //print("startTask is at max concurrent uploads")
             return
         }
 
@@ -579,16 +569,14 @@ public final class TUSClient: NSObject {
         uploadTasksRunning += 1
         
         if metaData.remoteDestination != nil {
-            print("TUSClient running status task")
             api!.getStatusTask(metaData: metaData).resume()
         } else {
-            print("TUSClient running creation task")
             api!.getCreationTask(metaData: metaData).resume()
         }
     }
     
     private func processCreationTaskResult(for id: String, response: HTTPURLResponse) {
-        print("Processing CreationTask result")
+        //print("Processing CreationTask result")
         
         do {
             guard let location = response.locationHeader() else {
@@ -612,7 +600,6 @@ public final class TUSClient: NSObject {
             
             if !isSessionInvalidated {
                 let currentChunkFileSize = try getChunkSize(for: metaData)
-                print("TUSClient running upload task1")
                 api!.getUploadTask(metaData: metaData, currentChunkFileSize: currentChunkFileSize).resume()
             } else if uploadTasksRunning > 0 {
                 uploadTasksRunning -= 1
@@ -666,9 +653,8 @@ public final class TUSClient: NSObject {
                     endOfCurrentChunk = metaData.size
                 }
                 
-                print("Starting UploadTask\nID: \(id)\nCHUNK: \(metaData.currentChunk)\nSERVER EXPECTED OFFSET: \(serverExpectedOffset)\nCLIENT EXPECTED OFFSET \(clientExpectedOffset)\nCURRENT CHUNK FILESIZE: \(currentChunkFileSize)\nTOTAL FILE SIZE: \(metaData.size)\n END OF CURRENT CHUNK: \(endOfCurrentChunk)\n------")
-                
-                //try files?.printFileDirContents(url: metaData.fileDir)
+                /*print("Starting UploadTask\nID: \(id)\nCHUNK: \(metaData.currentChunk)\nSERVER EXPECTED OFFSET: \(serverExpectedOffset)\nCLIENT EXPECTED OFFSET \(clientExpectedOffset)\nCURRENT CHUNK FILESIZE: \(currentChunkFileSize)\nTOTAL FILE SIZE: \(metaData.size)\n END OF CURRENT CHUNK: \(endOfCurrentChunk)\n------")
+                 try files?.printFileDirContents(url: metaData.fileDir)*/
                 
                 // Handle incorrect chunk (server successfully received file but client didn't process response and has stale chunk number)
                 if serverExpectedOffset >= endOfCurrentChunk {
@@ -681,7 +667,7 @@ public final class TUSClient: NSObject {
                         byteCounter += metaData.chunkSize
                         correctChunk += 1
                     }
-                    print("Updated chunk to \(correctChunk)")
+                    //print("Updated chunk to \(correctChunk)")
                     metaData.currentChunk = correctChunk
                     try saveMetadata(metaData: metaData)
                     
@@ -726,7 +712,6 @@ public final class TUSClient: NSObject {
                 }
                 
                 if !isSessionInvalidated {
-                    print("TUSClient running upload task2")
                     api!.getUploadTask(metaData: metaData, currentChunkFileSize: currentChunkFileSize).resume()
                 } else if uploadTasksRunning > 0 {
                     uploadTasksRunning -= 1
@@ -741,7 +726,7 @@ public final class TUSClient: NSObject {
     
     
     private func processUploadTaskResult(for id: String, response: HTTPURLResponse) {
-        print("-----\nProcessing UploadTask result for \(id)")
+        //print("-----\nProcessing UploadTask result for \(id)")
         do {
             // Load metadata from disk
             let metaData = try loadMetadata(for: id)
@@ -794,7 +779,6 @@ public final class TUSClient: NSObject {
             //print("Uploading next \(newCurrentChunkFileSize) bytes for \(metaData.id.uuidString)\n-----")
             
             if !isSessionInvalidated {
-                print("TUSClient running upload task3")
               api!.getUploadTask(metaData: metaData, currentChunkFileSize: newCurrentChunkFileSize).resume()
             } else if uploadTasksRunning > 0 {
               uploadTasksRunning -= 1
@@ -842,7 +826,7 @@ public final class TUSClient: NSObject {
     }
         
     private func processFinishedFile(for metaData: UploadMetadata) {
-        print("\(metaData.id.uuidString) finished")
+        //print("\(metaData.id.uuidString) finished")
         do {
             // Update counter
             if uploadTasksRunning > 0 {
