@@ -13,7 +13,7 @@ enum FilesError: Error {
 }
 
 extension FilesError {
-    public var errorDescription: String? {
+    public var localizedDescription: String? {
         switch self {
         case .metaDataFileNotFound:
             return NSLocalizedString("Metadata.plist file could not be found", comment: "RELATED_FILE_NOT_FOUND")
@@ -177,7 +177,7 @@ final class Files {
         
         // Write to disk
         try data.write(to: truncatedChunkPath, options: .atomic)
-        print("truncateChunk: Wrote \(offset) bytes to \(truncatedChunkPath) for \(metaData.id.uuidString)")
+        print("truncateChunk: Wrote \(data.count) bytes to \(truncatedChunkPath) for \(metaData.id.uuidString)")
         
         metaData.truncatedFileName = truncatedFileName
         metaData.truncatedOffset += (offset - metaData.truncatedOffset)
@@ -206,7 +206,7 @@ final class Files {
         let fileSize = try getFileSize(filePath: location)
         var currentSize = 0
         var chunk = 0
-        var range = 0..<min(chunkSize, fileSize)
+        var range = 0..<min(chunkSize == -1 ? fileSize : chunkSize, fileSize)
         while (range.upperBound <= fileSize && range.upperBound != range.lowerBound) {
             let fileName = "\(chunk).\(location.pathExtension)"
             let chunkPathInUuidDir = uuidDir.appendingPathComponent(fileName)
@@ -217,7 +217,7 @@ final class Files {
             //print("Containing data \(range.lowerBound) - \(range.upperBound)")
             //print("File handle offset: \(try fileHandle.offset())")
             try data.write(to: chunkPathInUuidDir, options: .atomic)
-            range = range.upperBound..<min(range.upperBound + chunkSize, fileSize)
+            range = range.upperBound..<min(range.upperBound + (chunkSize == -1 ? fileSize : chunkSize), fileSize)
             chunk += 1
         }
         
