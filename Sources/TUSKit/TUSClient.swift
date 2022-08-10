@@ -204,25 +204,27 @@ public final class TUSClient: NSObject {
         do {
             let id = UUID()
             
-            func makeMetadata() throws -> UploadMetadata {
-                guard let files = self.files else {
-                    throw TUSClientError.couldNotUploadFile
+            try autoreleasepool {
+                func makeMetadata() throws -> UploadMetadata {
+                    guard let files = self.files else {
+                        throw TUSClientError.couldNotUploadFile
+                    }
+                    
+                    let storedFileDir = try files.copyAndChunk(from: filePath, id: id, chunkSize: chunkSize)
+                    
+                    let size = try files.getFileSize(filePath: filePath)
+                    guard let url = uploadURL ?? serverURL else {
+                        throw TUSClientError.couldNotUploadFile
+                    }
+                    return UploadMetadata(id: id, fileDir: storedFileDir, uploadURL: url, size: size, chunkSize: chunkSize, fileExtension: filePath.pathExtension , customHeaders: customHeaders, mimeType: filePath.mimeType.nonEmpty, context: context)
                 }
                 
-                let storedFileDir = try files.copyAndChunk(from: filePath, id: id, chunkSize: chunkSize)
+                let metaData = try makeMetadata()
                 
-                let size = try files.getFileSize(filePath: filePath)
-                guard let url = uploadURL ?? serverURL else {
-                    throw TUSClientError.couldNotUploadFile
-                }
-                return UploadMetadata(id: id, fileDir: storedFileDir, uploadURL: url, size: size, chunkSize: chunkSize, fileExtension: filePath.pathExtension , customHeaders: customHeaders, mimeType: filePath.mimeType.nonEmpty, context: context)
+                try saveMetadata(metaData: metaData)
+                
+                try startTask(for: metaData)
             }
-            
-            let metaData = try makeMetadata()
-            
-            try saveMetadata(metaData: metaData)
-            
-            try startTask(for: metaData)
             
             return id
         } catch let error as TUSClientError {
