@@ -410,7 +410,7 @@ public final class TUSClient: NSObject {
     // MARK: - Tasks
     /// Validates if startTasks() can run since we only want one instance of it at a time ever
     private func canRunTasks(isFiltered: Bool) -> Bool {
-        // Prevent spamming this methodx
+        // Prevent spamming this method
         if isFiltered != true {
             if isStartingAllTasks {
                 return false

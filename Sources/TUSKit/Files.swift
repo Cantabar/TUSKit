@@ -177,7 +177,7 @@ final class Files {
         
         // Write to disk
         try data.write(to: truncatedChunkPath, options: .atomic)
-        print("truncateChunk: Wrote \(data.count) bytes to \(truncatedChunkPath) for \(metaData.id.uuidString)")
+        //print("truncateChunk: Wrote \(data.count) bytes to \(truncatedChunkPath) for \(metaData.id.uuidString)")
         
         metaData.truncatedFileName = truncatedFileName
         metaData.truncatedOffset += (offset - metaData.truncatedOffset)
@@ -213,7 +213,7 @@ final class Files {
             
             try fileHandle.seek(toOffset: UInt64(range.startIndex))
             let data = fileHandle.readData(ofLength: range.count)
-            print("Writing chunk \(chunk) to \(chunkPathInUuidDir.absoluteString)")
+            //print("Writing chunk \(chunk) to \(chunkPathInUuidDir.absoluteString)")
             //print("Containing data \(range.lowerBound) - \(range.upperBound)")
             //print("File handle offset: \(try fileHandle.offset())")
             try data.write(to: chunkPathInUuidDir, options: .atomic)
