@@ -47,7 +47,14 @@ final class TUSAPI {
     @discardableResult
     func getUploadTask(metaData: UploadMetadata, currentChunkFileSize: Int) -> URLSessionUploadTask {
         
-        let offset = metaData.currentChunk * metaData.chunkSize + metaData.truncatedOffset
+        var offset = metaData.currentChunk * metaData.chunkSize + metaData.truncatedOffset
+        if(metaData.chunkSize == -1) {
+            if let range = metaData.uploadedRange {
+                offset = range.upperBound
+            } else {
+                offset = 0
+            }
+        }
         
         /// Use truncated file path if it exists, otherwise use prechunked file
         let fileName = "\(metaData.currentChunk).\(metaData.fileExtension)"
