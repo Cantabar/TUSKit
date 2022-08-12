@@ -200,9 +200,14 @@ public final class TUSClient: NSObject {
     /// - Returns: ANn id
     /// - Throws: TUSClientError
     @discardableResult
-    public func uploadFile(filePath: URL, uploadURL: URL? = nil, customHeaders: [String: String] = [:], context: [String: String]? = nil) throws -> UUID {
+    public func uploadFile(uploadId: Any?, filePath: URL, uploadURL: URL? = nil, customHeaders: [String: String] = [:], context: [String: String]? = nil) throws -> UUID {
         do {
-            let id = UUID()
+            var id: UUID
+            if (uploadId != nil) {
+                id = UUID(uuidString: uploadId as! String)!
+            } else {
+                id = UUID()
+            }
             
             try autoreleasepool {
                 func makeMetadata() throws -> UploadMetadata {
@@ -261,6 +266,7 @@ public final class TUSClient: NSObject {
             
             do {
                 let uploadId = try self.uploadFile(
+                    uploadId: options["uploadId"] ?? nil,
                     filePath: fileToBeUploaded,
                     uploadURL: URL(string: endpoint)!,
                     customHeaders: headers,
