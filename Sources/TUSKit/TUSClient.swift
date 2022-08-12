@@ -200,11 +200,11 @@ public final class TUSClient: NSObject {
     /// - Returns: ANn id
     /// - Throws: TUSClientError
     @discardableResult
-    public func uploadFile(uploadId: String?, filePath: URL, uploadURL: URL? = nil, customHeaders: [String: String] = [:], context: [String: String]? = nil) throws -> UUID {
+    public func uploadFile(uploadId: Any?, filePath: URL, uploadURL: URL? = nil, customHeaders: [String: String] = [:], context: [String: String]? = nil) throws -> UUID {
         do {
             var id: UUID
             if (uploadId != nil) {
-                id = UUID(uuidString: uploadId!)!
+                id = UUID(uuidString: uploadId as! String)!
             } else {
                 id = UUID()
             }
@@ -257,7 +257,6 @@ public final class TUSClient: NSObject {
         isBatchProcessingFile = true
         var uploads: [[String:Any]] = []
         for fileUpload in fileUploads {
-            let providedUploadId = fileUpload["uploadId"]
             let fileUrl = fileUpload["fileUrl"] ?? ""
             let options = fileUpload["options"] as? [String: Any] ?? [:]
             let fileToBeUploaded: URL = buildFileUrl(fileUrl: fileUrl as! String)
@@ -267,7 +266,7 @@ public final class TUSClient: NSObject {
             
             do {
                 let uploadId = try self.uploadFile(
-                    uploadId: providedUploadId ?? nil,
+                    uploadId: options["uploadId"] ?? nil,
                     filePath: fileToBeUploaded,
                     uploadURL: URL(string: endpoint)!,
                     customHeaders: headers,
