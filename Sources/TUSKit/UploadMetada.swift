@@ -129,7 +129,18 @@ final class UploadMetadata: Codable {
     
     let mimeType: String?
     
-    let customHeaders: [String: String]?
+    private var _customHeaders: [String: String]?
+    var customHeaders: [String: String]? {
+        get {
+            queue.sync {
+                _customHeaders
+            }
+        } set {
+            queue.sync {
+                _customHeaders = newValue
+            }
+        }
+    }
     
     /// Client can change chunkSize between uploads.
     /// But files are chunked at the time the file is given to TUS for upload
@@ -175,7 +186,7 @@ final class UploadMetadata: Codable {
         self._currentChunk = 0
         self.fileExtension = fileExtension
         self.size = size
-        self.customHeaders = customHeaders
+        self._customHeaders = customHeaders
         self.mimeType = mimeType
         self.version = 1 // Can't make default property because of Codable
         self.context = context
@@ -194,7 +205,7 @@ final class UploadMetadata: Codable {
         context = try values.decode([String: String]?.self, forKey: .context)
         _uploadedRange = try values.decode(Range<Int>?.self, forKey: .uploadedRange)
         mimeType = try values.decode(String?.self, forKey: .mimeType)
-        customHeaders = try values.decode([String: String]?.self, forKey: .customHeaders)
+        _customHeaders = try values.decode([String: String]?.self, forKey: .customHeaders)
         size = try values.decode(Int.self, forKey: .size)
         chunkSize = try values.decode(Int.self, forKey: .chunkSize)
         fileExtension = try values.decode(String.self, forKey: .fileExtension)

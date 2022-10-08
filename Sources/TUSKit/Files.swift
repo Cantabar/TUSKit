@@ -306,5 +306,47 @@ final class Files {
     func contentsOfDirectory(directory: URL) throws -> [URL] {
         return try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
     }
+    
+    /// Get latest authorization token from Keychain and update it in file metadata
+    func updateAuthorizationHeaders() {
+        
+        func readFromKeychain() -> Data? {
+            let query = [
+                kSecAttrService: Bundle.main.bundleIdentifier,
+                kSecAttrAccount: "TOKENS",
+                kSecClass: kSecClassGenericPassword,
+                kSecReturnData: true
+            ] as CFDictionary
+            
+            var result: AnyObject?
+            SecItemCopyMatching(query, &result)
+            
+            if(result == nil) {
+                return nil
+            }
+            
+            return result as? Data
+        }
+        
+        guard let keychainData = readFromKeychain() else { return }
+        do {
+            struct Tokens: Codable {
+                var accessToken: String
+                var refreshToken: String
+            }
+            let tokens: Tokens = try JSONDecoder().decode(Tokens.self, from: keychainData)
+            if(tokens && tokens.accessToken) {
+              let files = try loadAllMetadata(nil)
+              try files.forEach { metaData in
+                  if(metaData.customHeaders?["Authorization"] != "Bearer \(tokens.accessToken)") {
+                    metaData.customHeaders?["Authorization"] = "Bearer \(tokens.accessToken)"
+                    try self.encodeAndStore(metaData: metaData)
+                  }
+              }
+            }
+        } catch let error {
+            print("TUSFiles failed to decode item for keychain: \(error)")
+        }
+    }
 }
 
