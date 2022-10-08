@@ -103,6 +103,7 @@ public final class TUSClient: NSObject {
         self.initSession()
         self.api = TUSAPI(session: self.session!)
         self.files = try Files(storageDirectory: storageDirectory)
+        self.files!.updateAuthorizationHeaders()
         self.serverURL = server
         self.chunkSize = chunkSize
         
@@ -124,6 +125,8 @@ public final class TUSClient: NSObject {
         urlSessionConfig.httpMaximumConnectionsPerHost = 2
         // 60 Second timeout (resets if data transmitted)
         urlSessionConfig.timeoutIntervalForRequest = TimeInterval(self.timeoutSeconds)
+        // If the file isn't uploaded after 1 day stop trying and let the user manually resubmit this
+        urlSessionConfig.timeoutIntervalForResource = TimeInterval(60 * 60 * 24)
         // Fail immediately if no connection and let app resume it when in foreground again to be safe with upload-offsets changing
         urlSessionConfig.waitsForConnectivity = false
         // Don't let system decide when to start the task
@@ -138,6 +141,7 @@ public final class TUSClient: NSObject {
         self.api = TUSAPI(session: self.session!)
         self.isSessionInvalidated = false
     }
+
     
     /// Will notify delegate when cancel has finished since URLSession requires completion handler
     /// to obtain reference to running tasks
@@ -311,6 +315,12 @@ public final class TUSClient: NSObject {
     public func resume() {
         self.isPaused = false
         self.startTasks(for: nil, processFailedItemsIfEmpty: true)
+    }
+    
+    public func updateAuthorizationHeaders() {
+        try autoreleasepool {
+            self.files?.updateAuthorizationHeaders()
+        }
     }
     
     /// Retry a failed upload. Note that `TUSClient` already has an internal retry mechanic before it reports an upload as failure.
