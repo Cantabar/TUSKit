@@ -125,8 +125,8 @@ public final class TUSClient: NSObject {
         urlSessionConfig.httpMaximumConnectionsPerHost = 2
         // 60 Second timeout (resets if data transmitted)
         urlSessionConfig.timeoutIntervalForRequest = TimeInterval(self.timeoutSeconds)
-        // If the file isn't uploaded after 1 day stop trying and let the user manually resubmit this
-        urlSessionConfig.timeoutIntervalForResource = TimeInterval(60 * 60 * 24)
+        // If the file isn't uploaded after 7 days stop trying and let the user manually resubmit this
+        urlSessionConfig.timeoutIntervalForResource = TimeInterval(60 * 60 * 24 * 7)
         // Fail immediately if no connection and let app resume it when in foreground again to be safe with upload-offsets changing
         urlSessionConfig.waitsForConnectivity = false
         // Don't let system decide when to start the task
