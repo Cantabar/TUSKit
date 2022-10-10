@@ -335,14 +335,12 @@ final class Files {
                 var refreshToken: String
             }
             let tokens: Tokens = try JSONDecoder().decode(Tokens.self, from: keychainData)
-            if(tokens && tokens.accessToken) {
-              let files = try loadAllMetadata(nil)
-              try files.forEach { metaData in
-                  if(metaData.customHeaders?["Authorization"] != "Bearer \(tokens.accessToken)") {
-                    metaData.customHeaders?["Authorization"] = "Bearer \(tokens.accessToken)"
-                    try self.encodeAndStore(metaData: metaData)
-                  }
-              }
+            let files = try loadAllMetadata(nil)
+            try files.forEach { metaData in
+                if(metaData.customHeaders?["Authorization"] != "Bearer \(tokens.accessToken)") {
+                  metaData.customHeaders?["Authorization"] = "Bearer \(tokens.accessToken)"
+                  try self.encodeAndStore(metaData: metaData)
+                }
             }
         } catch let error {
             print("TUSFiles failed to decode item for keychain: \(error)")
