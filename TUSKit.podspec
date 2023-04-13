@@ -7,7 +7,7 @@
 
 Pod::Spec.new do |s|
   s.name             = 'TUSKit'
-  s.version          = '4.2.1'
+  s.version          = '4.2.2'
   s.summary          = 'TUSKit client in Swift'
   s.swift_version = '5.0'
 
