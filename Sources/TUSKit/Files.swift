@@ -8,17 +8,17 @@
 import Foundation
 
 enum FilesError: Error {
-    case metaDataFileNotFound
-    case uuidDirectoryNotFound
+    case metaDataFileNotFound(uuid: String)
+    case uuidDirectoryNotFound(uuid: String)
 }
 
-extension FilesError {
-    public var localizedDescription: String? {
+extension FilesError: LocalizedError {
+    var errorDescription: String? {
         switch self {
-        case .metaDataFileNotFound:
-            return NSLocalizedString("Metadata.plist file could not be found", comment: "RELATED_FILE_NOT_FOUND")
-        case .uuidDirectoryNotFound:
-            return NSLocalizedString("UUID directory for file was not found", comment: "UUID_DIRECTORY_NOT_FOUND")
+        case let .metaDataFileNotFound(uuid):
+            return NSLocalizedString("Metadata.plist file could not be found \(uuid)", comment: "RELATED_FILE_NOT_FOUND")
+        case let .uuidDirectoryNotFound(uuid):
+            return NSLocalizedString("UUID directory for file was not found \(uuid)", comment: "UUID_DIRECTORY_NOT_FOUND")
         default:
             return NSLocalizedString("File error", comment: "FILE_ERROR")
         }
@@ -117,8 +117,8 @@ final class Files {
                 let uuidDirContents = try contentsOfDirectory(directory: uuidDir)
                 let metaDataUrls = uuidDirContents.filter{ $0.pathExtension == "plist" }
                 if(metaDataUrls.isEmpty) {
-                    print(uuidDirContents)
-                    throw FilesError.metaDataFileNotFound
+                    try FileManager.default.removeItem(at: uuidDir)
+                    throw FilesError.metaDataFileNotFound(uuid: uuidDir.lastPathComponent)
                 }
                 let metaDataUrl = metaDataUrls[0]
                 if let data = try? Data(contentsOf: metaDataUrl) {
@@ -256,7 +256,7 @@ final class Files {
         try queue.sync {
             guard FileManager.default.fileExists(atPath: metaData.fileDir.path) else {
                 // Could not find the directory that's related to this metadata.
-                throw FilesError.uuidDirectoryNotFound
+                throw FilesError.uuidDirectoryNotFound(uuid: metaData.id.uuidString)
             }
             
             let targetLocation = metaData.fileDir.appendingPathComponent(metadataFileName)
@@ -343,8 +343,8 @@ final class Files {
                 }
             }
         } catch let error {
+            // @TODO log this error in RN sentry
             print("TUSFiles failed to decode item for keychain: \(error)")
         }
     }
 }
-
