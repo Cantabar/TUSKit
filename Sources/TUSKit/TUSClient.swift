@@ -839,7 +839,9 @@ public final class TUSClient: NSObject {
             }
         } catch let fileError {
             startTasks(for: nil)
-            delegate?.fileError(id: id, errorMessage: fileError.localizedDescription)
+            // Make sure we pass over original error message along with any new error messages
+            // specifically so we can parse UUID out of it in react-native if the error `metaDataFileNotFound`
+            delegate?.fileError(id: id, errorMessage: "\(fileError.localizedDescription) \(errorMessage)" )
         }
     }
         
