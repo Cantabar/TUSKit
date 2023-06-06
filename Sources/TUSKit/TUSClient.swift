@@ -492,23 +492,31 @@ public final class TUSClient: NSObject {
                 return uuid.uuidString
             })
             var failedItems: [UploadMetadata] = []
+            var ignoredFromUploadManifestQueue: [UploadMetadata] = []
             var metaDataItems = try files?.loadAllMetadata(uuidStrings).filter({ metaData in
                 // Only allow uploads where errors are below an amount
                 if metaData.errorCount > retryCount {
                     failedItems.append(metaData)
                     return false
                 } else {
+                    // Check priority of upload queu based on upload manifest ID metadata
                     let uploadManifestQueue = try self.files!.loadUploadQueue()
                     let uploadManifestToPrioritize = uploadManifestQueue.first
                     if(uploadManifestToPrioritize != nil) {
                         let uploadManifestId = metaData.context?[UPLOAD_MANIFEST_METADATA_KEY]
                         if(uploadManifestId != uploadManifestToPrioritize?.uploadManifestId) {
+                            ignoredFromUploadManifestQueue.append(metaData)
                             return false
                         }
                     }
                     return !metaData.isFinished
                 }
             })
+            
+            // Safe guard in case the upload queue doesn't work properly to avoid dead locks
+            if(metaDataItems?.count ?? 0 == 0 && ignoredFromUploadManifestQueue.count > 0) {
+                metaDataItems = ignoredFromUploadManifestQueue
+            }
             
             // If list exhausted, process failed items queue
             if (metaDataItems?.count ?? 0 == 0) && processFailedItemsIfEmpty == true {
@@ -872,13 +880,6 @@ public final class TUSClient: NSObject {
             }
             
             try files?.removeFile(metaData)
-            
-            let uploadManifestId = metaData.context?[UPLOAD_MANIFEST_METADATA_KEY]
-            if(uploadManifestId != nil) {
-                let uploadManifestQueue = try self.files!.loadUploadQueue()
-                uploadManifestQueue.remove(uploadManifestId: uploadManifestId!, uuid: metaData.id)
-                try self.files?.encodeAndStoreUploadQueue(uploadManifestQueue)
-            }
             
             // Make sure maximum tasks are running if any exist
             startTasks(for: nil, processFailedItemsIfEmpty: true)

@@ -49,7 +49,16 @@ class UploadQueue: Codable {
         if(isEmpty) {
             return nil
         }
-        return uploadManifests.first
+        queue.sync {
+            let firstItem = uploadManifests.first
+            // This scenario has happened in testing, idk how
+            if(firstItem?.uuids.count ?? 0 == 0) {
+                uploadManifests.removeFirst()
+                return uploadManifests.first
+            } else {
+                return firstItem
+            }
+        }
     }
     
     var peek: UploadManifestFiles? {

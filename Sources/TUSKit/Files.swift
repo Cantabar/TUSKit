@@ -256,6 +256,13 @@ final class Files {
         try fileQueue.sync {
             try FileManager.default.removeItem(at: fileDir)
         }
+        
+        let uploadManifestId = metaData.context?[UPLOAD_MANIFEST_METADATA_KEY]
+        if(uploadManifestId != nil) {
+            let uploadManifestQueue = try self.loadUploadQueue()
+            uploadManifestQueue.remove(uploadManifestId: uploadManifestId!, uuid: metaData.id)
+            try self.encodeAndStoreUploadQueue(uploadManifestQueue)
+        }
     }
     
     /// Removes metadata and its related file from for array of files
