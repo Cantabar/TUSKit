@@ -299,7 +299,6 @@ final class Files {
     func encodeAndStoreUploadQueue(_ queueToEncode: UploadQueue) throws {
         try uploadQueue.sync {
             let uploadQueuePath =  storageDirectory.appendingPathComponent(uploadQueueFileName)
-            NSLog("Path: \(uploadQueuePath)")
            
             let encoder = PropertyListEncoder()
             let encodedData = try encoder.encode(queueToEncode)
