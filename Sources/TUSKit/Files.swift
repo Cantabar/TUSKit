@@ -32,9 +32,13 @@ final class Files {
     
     let storageDirectory: URL
     
-    private let queue = DispatchQueue(label: "com.tuskit.files")
+    private let fileQueue = DispatchQueue(label: "com.tuskit.files")
+    private let uploadQueue = DispatchQueue(label: "com.tuskit.uploadqueue")
+
     
     private let metadataFileName = "metadata.plist"
+    
+    private let uploadQueueFileName = "upload_queue.plist"
     
     /// Pass a directory to store the local cache in.
     /// - Parameter storageDirectory: Leave nil for the documents dir. Pass a relative path for a dir inside the documents dir. Pass an absolute path for storing files there.
@@ -89,6 +93,22 @@ final class Files {
         print(contents)
     }
     
+    /// UploadQueue cannot exist in memory because it will need to be read from the background upload side of things which won't have access to TUSClient memory
+    /// So load it from file every time you need to access it as well as write it back to disk every time you update the UploadQueue
+    func loadUploadQueue() throws -> UploadQueue {
+        uploadQueue.sync {
+            let decoder = PropertyListDecoder()
+            let uploadQueuePath = self.storageDirectory.appendingPathComponent(self.uploadQueueFileName)
+            if let data = try? Data(contentsOf: uploadQueuePath) {
+                guard let uploadQueue = try? decoder.decode(UploadQueue.self, from: data) else {
+                    return UploadQueue()
+                }
+                return uploadQueue
+            }
+            return UploadQueue()
+        }
+    }
+    
     /// Loads all metadata (decoded plist files) from the target directory.
     /// - Important:Metadata assumes to be in the same directory as the file it references.
     /// This means that once retrieved, this method updates the metadata's filePath to the directory that the metadata is in.
@@ -99,9 +119,12 @@ final class Files {
     /// - Throws: File related errors
     /// - Returns: An array of UploadMetadata types
     func loadAllMetadata(_ filterOnUuids: [String]?) throws -> [UploadMetadata] {
-        try queue.sync {
+        try fileQueue.sync {
 
             let uuidDirs = try self.contentsOfDirectory(directory: storageDirectory).filter({  uuidDir in
+                if (uuidDir.lastPathComponent == uploadQueueFileName) {
+                    return false
+                }
                 if filterOnUuids == nil {
                     return true
                 }
@@ -230,7 +253,7 @@ final class Files {
     func removeFile(_ metaData: UploadMetadata) throws {
         let fileDir = metaData.fileDir
         
-        try queue.sync {
+        try fileQueue.sync {
             try FileManager.default.removeItem(at: fileDir)
         }
     }
@@ -253,7 +276,7 @@ final class Files {
     /// - Returns: The URL of the location where the metadata is stored.
     @discardableResult
     func encodeAndStore(metaData: UploadMetadata) throws -> URL {
-        try queue.sync {
+        try fileQueue.sync {
             guard FileManager.default.fileExists(atPath: metaData.fileDir.path) else {
                 // Could not find the directory that's related to this metadata.
                 throw FilesError.uuidDirectoryNotFound(uuid: metaData.id.uuidString)
@@ -265,6 +288,22 @@ final class Files {
             let encodedData = try encoder.encode(metaData)
             try encodedData.write(to: targetLocation, options: .atomic)
             return targetLocation
+        }
+    }
+    
+    /// Stores the upload queue priority to disk
+    /// The reason to use this method is persistence between runs. E.g. Between app launches or background threads.
+    /// - Parameter uploadQueue: The upload queue to store.
+    /// - Throws: Any error related to file handling
+    @discardableResult
+    func encodeAndStoreUploadQueue(_ queueToEncode: UploadQueue) throws {
+        try uploadQueue.sync {
+            let uploadQueuePath =  storageDirectory.appendingPathComponent(uploadQueueFileName)
+            NSLog("Path: \(uploadQueuePath)")
+           
+            let encoder = PropertyListEncoder()
+            let encodedData = try encoder.encode(queueToEncode)
+            try encodedData.write(to: uploadQueuePath, options: .atomic)
         }
     }
     

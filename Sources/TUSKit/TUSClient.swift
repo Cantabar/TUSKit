@@ -26,6 +26,8 @@ public protocol TUSClientDelegate: AnyObject {
     func progressFor(id: UUID, bytesUploaded: Int, totalBytes: Int)
 }
 
+let UPLOAD_MANIFEST_METADATA_KEY = "upload_manifest_id"
+
 
 /// The TUSKit client.
 /// Please refer to the Readme.md on how to use this type.
@@ -232,6 +234,13 @@ public final class TUSClient: NSObject {
                 
                 try saveMetadata(metaData: metaData)
                 
+                guard let uploadManifestId = metaData.context?[UPLOAD_MANIFEST_METADATA_KEY] else {
+                    throw TUSClientError.missingUploadManifestId
+                }
+                
+                let uploadManifestQueue = try self.files!.loadUploadQueue()
+                uploadManifestQueue.enqueue(uploadManifestId: uploadManifestId, uuid: id)
+                try self.files?.encodeAndStoreUploadQueue(uploadManifestQueue)
                 try startTask(for: metaData)
             }
             
@@ -276,6 +285,7 @@ public final class TUSClient: NSObject {
                     customHeaders: headers,
                     context: metadata
                 )
+                
                 let uploadResult = [
                     "status": "success",
                     "uploadId":"\(uploadId)",
@@ -488,6 +498,14 @@ public final class TUSClient: NSObject {
                     failedItems.append(metaData)
                     return false
                 } else {
+                    let uploadManifestQueue = try self.files!.loadUploadQueue()
+                    let uploadManifestToPrioritize = uploadManifestQueue.first
+                    if(uploadManifestToPrioritize != nil) {
+                        let uploadManifestId = metaData.context?[UPLOAD_MANIFEST_METADATA_KEY]
+                        if(uploadManifestId != uploadManifestToPrioritize?.uploadManifestId) {
+                            return false
+                        }
+                    }
                     return !metaData.isFinished
                 }
             })
@@ -854,6 +872,13 @@ public final class TUSClient: NSObject {
             }
             
             try files?.removeFile(metaData)
+            
+            let uploadManifestId = metaData.context?[UPLOAD_MANIFEST_METADATA_KEY]
+            if(uploadManifestId != nil) {
+                let uploadManifestQueue = try self.files!.loadUploadQueue()
+                uploadManifestQueue.remove(uploadManifestId: uploadManifestId!, uuid: metaData.id)
+                try self.files?.encodeAndStoreUploadQueue(uploadManifestQueue)
+            }
             
             // Make sure maximum tasks are running if any exist
             startTasks(for: nil, processFailedItemsIfEmpty: true)
