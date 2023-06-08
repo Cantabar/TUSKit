@@ -49,16 +49,7 @@ class UploadQueue: Codable {
         if(isEmpty) {
             return nil
         }
-        queue.sync {
-            let firstItem = uploadManifests.first
-            // This scenario has happened in testing, idk how
-            if(firstItem?.uuids.count ?? 0 == 0) {
-                uploadManifests.removeFirst()
-                return uploadManifests.first
-            } else {
-                return firstItem
-            }
-        }
+        return uploadManifests.first
     }
     
     var peek: UploadManifestFiles? {
@@ -97,6 +88,18 @@ class UploadQueue: Codable {
             if(uploadManifests[uploadManifestIndex].uuids.isEmpty) {
                 uploadManifests.remove(at: uploadManifestIndex)
             }
+        }
+    }
+    
+    /// RN side will call this after manifest validated to fully remove it (in case it's still here somehow)
+    func remove(uploadManifestId: String) {
+        if(!isEmpty) {
+            let uploadManifestIndex = uploadManifests.firstIndex(where: { $0.uploadManifestId == uploadManifestId })
+            guard let uploadManifestIndex = uploadManifestIndex else {
+                return
+            }
+            
+           uploadManifests.remove(at: uploadManifestIndex)
         }
     }
     
