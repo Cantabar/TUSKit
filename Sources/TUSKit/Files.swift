@@ -32,9 +32,13 @@ final class Files {
     
     let storageDirectory: URL
     
-    private let queue = DispatchQueue(label: "com.tuskit.files")
+    private let fileQueue = DispatchQueue(label: "com.tuskit.files")
+    private let uploadQueue = DispatchQueue(label: "com.tuskit.uploadqueue")
+
     
     private let metadataFileName = "metadata.plist"
+    
+    private let uploadQueueFileName = "upload_queue.plist"
     
     /// Pass a directory to store the local cache in.
     /// - Parameter storageDirectory: Leave nil for the documents dir. Pass a relative path for a dir inside the documents dir. Pass an absolute path for storing files there.
@@ -89,6 +93,46 @@ final class Files {
         print(contents)
     }
     
+    /// UploadQueue cannot exist in memory because it will need to be read from the background upload side of things which won't have access to TUSClient memory
+    /// So load it from file every time you need to access it as well as write it back to disk every time you update the UploadQueue
+    func loadUploadQueue() throws -> UploadQueue {
+        let decoder = PropertyListDecoder()
+        let uploadQueuePath = self.storageDirectory.appendingPathComponent(self.uploadQueueFileName)
+        if let data = try? Data(contentsOf: uploadQueuePath) {
+            guard let uploadQueue = try? decoder.decode(UploadQueue.self, from: data) else {
+                return UploadQueue()
+            }
+            return uploadQueue
+        }
+        return UploadQueue()
+    }
+    
+    /// This needs to exist here so we can use the uploadQueue.sync
+    func removeUploadManifest(_ uploadManifestId: String) throws -> Bool {
+        uploadQueue.sync {
+            do {
+                let uploadManifestQueue = try self.loadUploadQueue()
+                uploadManifestQueue.remove(uploadManifestId: uploadManifestId)
+                return true
+            } catch {
+                print(error)
+                return false
+            }
+        }
+    }
+    
+    func addFileToUploadManifest(_ uploadManifestId: String, uuid: UUID) {
+        do {
+            try uploadQueue.sync {
+                let uploadManifestQueue = try self.loadUploadQueue()
+                uploadManifestQueue.enqueue(uploadManifestId: uploadManifestId, uuid: uuid)
+                try self.encodeAndStoreUploadQueue(uploadManifestQueue)
+            }
+        } catch let error {
+            print(error)
+        }
+    }
+    
     /// Loads all metadata (decoded plist files) from the target directory.
     /// - Important:Metadata assumes to be in the same directory as the file it references.
     /// This means that once retrieved, this method updates the metadata's filePath to the directory that the metadata is in.
@@ -99,9 +143,12 @@ final class Files {
     /// - Throws: File related errors
     /// - Returns: An array of UploadMetadata types
     func loadAllMetadata(_ filterOnUuids: [String]?) throws -> [UploadMetadata] {
-        try queue.sync {
+        try fileQueue.sync {
 
             let uuidDirs = try self.contentsOfDirectory(directory: storageDirectory).filter({  uuidDir in
+                if (uuidDir.lastPathComponent == uploadQueueFileName) {
+                    return false
+                }
                 if filterOnUuids == nil {
                     return true
                 }
@@ -226,12 +273,22 @@ final class Files {
     
     /// Removes metadata and its related file from disk
     /// - Parameter metaData: The metadata description
+    /// - Parameter updateManifest: Defaults to true, but if false will not update manifest (useful if removing all files for a manifest)
     /// - Throws: Any error from FileManager when removing a file.
-    func removeFile(_ metaData: UploadMetadata) throws {
+    func removeFile(_ metaData: UploadMetadata, _ updateManifest: Bool = true) throws {
         let fileDir = metaData.fileDir
         
-        try queue.sync {
+        try fileQueue.sync {
             try FileManager.default.removeItem(at: fileDir)
+        }
+        
+        try uploadQueue.sync {
+            let uploadManifestId = metaData.context?[UPLOAD_MANIFEST_METADATA_KEY]
+            if(uploadManifestId != nil) {
+                let uploadManifestQueue = try self.loadUploadQueue()
+                uploadManifestQueue.remove(uploadManifestId: uploadManifestId!, uuid: metaData.id)
+                try self.encodeAndStoreUploadQueue(uploadManifestQueue)
+            }
         }
     }
     
@@ -240,8 +297,24 @@ final class Files {
     /// - Throws: Any error from FileManager when removing a file.
     func removeFilesForUuids(_ uuids: [String]?) throws {
         let files = try loadAllMetadata(uuids)
+        
+        // Save upload manifest ID
+        var uploadManifestId: String? = nil
+        if(files.count > 0) {
+            uploadManifestId = files[0].context?[UPLOAD_MANIFEST_METADATA_KEY]
+        }
+        
         try files.forEach { file in
-            try self.removeFile(file)
+            // We'll completely remove the manifest from the queue at the end so pass false as second param here to avoid doing mass updates to the same manifest
+            try self.removeFile(file, false)
+        }
+        
+        if(uploadManifestId != nil) {
+            try uploadQueue.sync {
+                let uploadManifestQueue = try self.loadUploadQueue()
+                uploadManifestQueue.remove(uploadManifestId: uploadManifestId!)
+                try self.encodeAndStoreUploadQueue(uploadManifestQueue)
+            }
         }
     }
     
@@ -253,7 +326,7 @@ final class Files {
     /// - Returns: The URL of the location where the metadata is stored.
     @discardableResult
     func encodeAndStore(metaData: UploadMetadata) throws -> URL {
-        try queue.sync {
+        try fileQueue.sync {
             guard FileManager.default.fileExists(atPath: metaData.fileDir.path) else {
                 // Could not find the directory that's related to this metadata.
                 throw FilesError.uuidDirectoryNotFound(uuid: metaData.id.uuidString)
@@ -266,6 +339,19 @@ final class Files {
             try encodedData.write(to: targetLocation, options: .atomic)
             return targetLocation
         }
+    }
+    
+    /// Stores the upload queue priority to disk
+    /// The reason to use this method is persistence between runs. E.g. Between app launches or background threads.
+    /// - Parameter uploadQueue: The upload queue to store.
+    /// - Throws: Any error related to file handling
+    @discardableResult
+    func encodeAndStoreUploadQueue(_ queueToEncode: UploadQueue) throws {
+        let uploadQueuePath =  storageDirectory.appendingPathComponent(uploadQueueFileName)
+       
+        let encoder = PropertyListEncoder()
+        let encodedData = try encoder.encode(queueToEncode)
+        try encodedData.write(to: uploadQueuePath, options: .atomic)
     }
     
     /// Load metadata from store and find matching one by id

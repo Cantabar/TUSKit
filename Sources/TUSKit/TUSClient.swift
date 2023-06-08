@@ -26,6 +26,8 @@ public protocol TUSClientDelegate: AnyObject {
     func progressFor(id: UUID, bytesUploaded: Int, totalBytes: Int)
 }
 
+let UPLOAD_MANIFEST_METADATA_KEY = "upload_manifest_id"
+
 
 /// The TUSKit client.
 /// Please refer to the Readme.md on how to use this type.
@@ -163,13 +165,14 @@ public final class TUSClient: NSObject {
             // Remove from disk
             do {
                 try self?.files?.removeFilesForUuids(uuids)
+                self?.delegate?.cancelFinished(errorMessage: "")
             } catch let error {
                 self?.delegate?.cancelFinished(errorMessage: error.localizedDescription)
             }
         })
     }
 
-    /// Returns info for debugging
+    /// Returns get for debugging
     /// - scheduler's pending tasks
     /// - scheduler's running tasks
     /// - api's maximum / current concurrent running uploads
@@ -232,6 +235,11 @@ public final class TUSClient: NSObject {
                 
                 try saveMetadata(metaData: metaData)
                 
+                guard let uploadManifestId = metaData.context?[UPLOAD_MANIFEST_METADATA_KEY] else {
+                    throw TUSClientError.missingUploadManifestId
+                }
+                
+                self.files!.addFileToUploadManifest(uploadManifestId, uuid: id)
                 try startTask(for: metaData)
             }
             
@@ -276,6 +284,7 @@ public final class TUSClient: NSObject {
                     customHeaders: headers,
                     context: metadata
                 )
+                
                 let uploadResult = [
                     "status": "success",
                     "uploadId":"\(uploadId)",
@@ -468,97 +477,127 @@ public final class TUSClient: NSObject {
         return true
     }
     
+    public func removeUploadManifest(_ uploadManifestId: String) -> Bool {
+        do {
+            let result = try self.files!.removeUploadManifest(uploadManifestId)
+            return result
+        }  catch {
+            print(error)
+            return false
+        }
+    }
+    
     /// Check which uploads aren't finished. Load them from a store and turn these into tasks.
     public func startTasks(for uuids: [UUID]?, processFailedItemsIfEmpty: Bool? = false) {
         if isPaused || isBatchProcessingFile || isSessionInvalidated {
             return
         }
-        do {
-            if !canRunTasks(isFiltered: uuids != nil) {
-                return
-            }
-            
-            let uuidStrings = uuids?.map({ uuid in
-                return uuid.uuidString
-            })
-            var failedItems: [UploadMetadata] = []
-            var metaDataItems = try files?.loadAllMetadata(uuidStrings).filter({ metaData in
-                // Only allow uploads where errors are below an amount
-                if metaData.errorCount > retryCount {
-                    failedItems.append(metaData)
-                    return false
-                } else {
-                    return !metaData.isFinished
+        
+        autoreleasepool {
+            do {
+                if !canRunTasks(isFiltered: uuids != nil) {
+                    return
                 }
-            })
-            
-            // If list exhausted, process failed items queue
-            if (metaDataItems?.count ?? 0 == 0) && processFailedItemsIfEmpty == true {
-                //print("TUSClient processing failed queue")
-                metaDataItems = failedItems
-            }
-            
-            if metaDataItems?.count ?? 0 > 0 {
-                // Prevent duplicate tasks
-                self.session?.getAllTasks(completionHandler: { [weak self] tasks in
-                    //print("Pending tasks count: \(tasks.count)")
-                    var uuid: String = ""
-                    do {
-                        guard let self = self else { return }
-                        func toTaskIds() -> [String] {
-                            var runningTaskIds: [String] = []
-                            tasks.forEach { task in
-                                do {
-                                    let uuid = try task.toTaskDescription()?.uuid
-                                    if uuid != nil {
-                                        runningTaskIds.append(uuid!)
+                
+                let uuidStrings = uuids?.map({ uuid in
+                    return uuid.uuidString
+                })
+                var failedItems: [UploadMetadata] = []
+                var ignoredFromUploadManifestQueue: [UploadMetadata] = []
+                var metaDataItems = try files?.loadAllMetadata(uuidStrings).filter({ metaData in
+                    // Only allow uploads where errors are below an amount
+                    // Commented this out because it was impossible to make work with a queue, downside is if an item continually fails it will block the whole queue
+                    /*if metaData.errorCount > retryCount {
+                        failedItems.append(metaData)
+                        return false
+                    } else {*/
+                        // Check priority of upload queue based on upload manifest ID metadata
+                        let uploadManifestQueue = try self.files!.loadUploadQueue()
+                        let uploadManifestToPrioritize = uploadManifestQueue.first
+                        if(uploadManifestToPrioritize != nil) {
+                            let uploadManifestId = metaData.context?[UPLOAD_MANIFEST_METADATA_KEY]
+                            if(uploadManifestId != uploadManifestToPrioritize?.uploadManifestId) {
+                                ignoredFromUploadManifestQueue.append(metaData)
+                                return false
+                            }
+                        }
+                        return !metaData.isFinished
+                   // }
+                })
+                
+                // Safe guard in case the upload queue doesn't work properly to avoid dead locks
+                if(metaDataItems?.count ?? 0 == 0 && ignoredFromUploadManifestQueue.count > 0) {
+                    metaDataItems = ignoredFromUploadManifestQueue
+                }
+                
+                // If list exhausted, process failed items queue
+               /* if (metaDataItems?.count ?? 0 == 0) && processFailedItemsIfEmpty == true {
+                    //print("TUSClient processing failed queue")
+                    metaDataItems = failedItems
+                }*/
+                
+                if metaDataItems?.count ?? 0 > 0 {
+                    // Prevent duplicate tasks
+                    self.session?.getAllTasks(completionHandler: { [weak self] tasks in
+                        //print("Pending tasks count: \(tasks.count)")
+                        var uuid: String = ""
+                        do {
+                            guard let self = self else { return }
+                            func toTaskIds() -> [String] {
+                                var runningTaskIds: [String] = []
+                                tasks.forEach { task in
+                                    do {
+                                        let uuid = try task.toTaskDescription()?.uuid
+                                        if uuid != nil {
+                                            runningTaskIds.append(uuid!)
+                                        }
+                                    } catch let error {
+                                        print(error)
+                                        if uuids == nil {
+                                            self.isStartingAllTasks = false
+                                            //print("isStartingAllTasks unlocked")
+                                        }
+                                        //print("isStartingAllTasks is still locked")
+                                        return
                                     }
-                                } catch let error {
-                                    print(error)
-                                    if uuids == nil {
-                                        self.isStartingAllTasks = false
-                                        //print("isStartingAllTasks unlocked")
-                                    }
-                                    //print("isStartingAllTasks is still locked")
+                                }
+                                return runningTaskIds
+                            }
+                            let runningTaskIds = toTaskIds()
+                            
+                            for metaData in metaDataItems! {
+                                uuid = metaData.id.uuidString
+                                
+                                // Prevent running a million requests on a multiplexed HTTP/2 connection
+                                if !self.canRunTask(isFiltered: uuids != nil) {
                                     return
                                 }
-                            }
-                            return runningTaskIds
-                        }
-                        let runningTaskIds = toTaskIds()
-                    
-                        for metaData in metaDataItems! {
-                            uuid = metaData.id.uuidString
-                            
-                            // Prevent running a million requests on a multiplexed HTTP/2 connection
-                            if !self.canRunTask(isFiltered: uuids != nil) {
-                                return
+                                
+                                // Prevent running duplicates
+                                let isRunning = runningTaskIds.firstIndex(where: {$0 == metaData.id.uuidString }) != nil
+                                if !isRunning {
+                                    try self.startTask(for: metaData)
+                                }
                             }
                             
-                            // Prevent running duplicates
-                            let isRunning = runningTaskIds.firstIndex(where: {$0 == metaData.id.uuidString }) != nil
-                            if !isRunning {
-                                try self.startTask(for: metaData)
+                            self.isStartingAllTasks = false
+                        } catch let error {
+                            if uuids == nil {
+                                self?.isStartingAllTasks = false
                             }
+                            self?.delegate?.fileError(id: uuid, errorMessage: "Start Tasks getAllTasks: \(error.localizedDescription)")
+                            print(error)
                         }
-                        
-                        self.isStartingAllTasks = false
-                    } catch let error {
-                        if uuids == nil {
-                            self?.isStartingAllTasks = false
-                        }
-                        self?.delegate?.fileError(id: uuid, errorMessage: "Start Tasks getAllTasks: \(error.localizedDescription)")
-                        print(error)
-                    }
-                })
-            } else {
-                self.isStartingAllTasks = false
+                    })
+                } else {
+                    self.isStartingAllTasks = false
+                }
+            } catch (let error) {
+                if uuids == nil {
+                    isStartingAllTasks = false
+                }
+                delegate?.fileError(id: "", errorMessage: "Start Tasks: \(error.localizedDescription)")
             }
-        } catch (let error) {
-            if uuids == nil {
-                isStartingAllTasks = false
-            }
-            delegate?.fileError(id: "", errorMessage: "Start Tasks: \(error.localizedDescription)")
         }
     }
     

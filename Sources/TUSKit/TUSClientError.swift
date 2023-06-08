@@ -18,6 +18,7 @@ public enum TUSClientError: Error {
     case couldnotRemoveFinishedUploads(underlyingError: Error)
     case receivedUnexpectedOffset
     case missingRemoteDestination
+    case missingUploadManifestId
 }
 
 extension TUSClientError {
@@ -25,6 +26,8 @@ extension TUSClientError {
         switch self {
         case let .couldNotCreateFileOnServer(responseCode):
             return NSLocalizedString("Creation task failed with response code \(responseCode)", comment: "RELATED_FILE_NOT_FOUND")
+        case let .missingUploadManifestId:
+            return NSLocalizedString("Upload manifest ID not found in metadata", comment: "METADATA_UPLOAD_MANIFEST_ID_MISSING")
         default:
             return NSLocalizedString("File error", comment: "FILE_ERROR")
         }
