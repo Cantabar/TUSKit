@@ -178,22 +178,31 @@ public final class TUSClient: NSObject {
     /// - api's maximum / current concurrent running uploads
     /// - current running uploads
     /// - files to upload
-    public func getInfo() -> [String:Int] {
-        let filesToUpload = files?.getFilesToUploadCount()
-        
-        let infoResult: [String:Int] = [
-            "maxConcurrentUploadsWifi": maxConcurrentUploadsWifi,
-            "maxConcurrentUploadsNoWifi": maxConcurrentUploadsNoWifi,
-            "currentConcurrentUploads":  uploadTasksRunning,
-            "filesToUploadCount": filesToUpload ?? 0
-        ]
-        
-        /*self.session?.getAllTasks(completionHandler: { [weak self] tasks in
+    public func getInfo() -> [String:Any] {
+      let filesToUpload = files?.getFilesToUploadCount()
+      
+      do {
+          let uploadQueue = try files?.loadUploadQueue()
+          let queueOrder = uploadQueue?.uploadManifests.map { $0.uploadManifestId }
+          
+          let infoResult = [
+              "maxConcurrentUploadsWifi": maxConcurrentUploadsWifi,
+              "maxConcurrentUploadsNoWifi": maxConcurrentUploadsNoWifi,
+              "currentConcurrentUploads":  uploadTasksRunning,
+              "filesToUploadCount": filesToUpload ?? 0,
+              "queueOrder": queueOrder
+          ] as [String : Any]
+          
+          /*self.session?.getAllTasks(completionHandler: { [weak self] tasks in
             print("Pending tasks count: \(tasks.count)")
-        })*/
-        
-        return infoResult
+            })*/
+          
+          return infoResult
+      } catch let error {
+          return [:]
+      }
     }
+    
     
     // MARK: - Upload actions
     
