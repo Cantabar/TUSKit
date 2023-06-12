@@ -535,6 +535,10 @@ public final class TUSClient: NSObject {
                         }
                         return !metaData.isFinished
                     } else {
+                        if metaData.errorCount > retryCount {
+                            failedItems.append(metaData)
+                            return false
+                        }
                         return !metaData.isFinished
                     }
                    // }
@@ -546,10 +550,10 @@ public final class TUSClient: NSObject {
                 }
                 
                 // If list exhausted, process failed items queue
-               /* if (metaDataItems?.count ?? 0 == 0) && processFailedItemsIfEmpty == true {
+                if (metaDataItems?.count ?? 0 == 0) && processFailedItemsIfEmpty == true {
                     //print("TUSClient processing failed queue")
                     metaDataItems = failedItems
-                }*/
+                }
                 
                 if metaDataItems?.count ?? 0 > 0 {
                     // Prevent duplicate tasks
