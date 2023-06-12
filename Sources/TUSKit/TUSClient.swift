@@ -69,6 +69,8 @@ public final class TUSClient: NSObject {
     private (set) var uploadTasksRunning: Int = 0
     
     public private (set) var isPaused: Bool = false
+    
+    public (set) var isFifoQueueEnabled: Bool = true
         
     /// When uploadFiles runs this is set to true to prevent startTasks from running
     public private (set) var isBatchProcessingFile: Bool = false
@@ -521,6 +523,7 @@ public final class TUSClient: NSObject {
                         return false
                     } else {*/
                         // Check priority of upload queue based on upload manifest ID metadata
+                    if(isFifoQueueEnabled) {
                         let uploadManifestQueue = try self.files!.loadUploadQueue()
                         let uploadManifestToPrioritize = uploadManifestQueue.first
                         if(uploadManifestToPrioritize != nil) {
@@ -531,6 +534,9 @@ public final class TUSClient: NSObject {
                             }
                         }
                         return !metaData.isFinished
+                    } else {
+                        return !metaData.isFinished
+                    }
                    // }
                 })
                 
