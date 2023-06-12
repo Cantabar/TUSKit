@@ -70,7 +70,7 @@ public final class TUSClient: NSObject {
     
     public private (set) var isPaused: Bool = false
     
-    public (set) var isFifoQueueEnabled: Bool = true
+    public var isFifoQueueEnabled: Bool = true
         
     /// When uploadFiles runs this is set to true to prevent startTasks from running
     public private (set) var isBatchProcessingFile: Bool = false
