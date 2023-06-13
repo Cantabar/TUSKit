@@ -192,7 +192,8 @@ public final class TUSClient: NSObject {
               "maxConcurrentUploadsNoWifi": maxConcurrentUploadsNoWifi,
               "currentConcurrentUploads":  uploadTasksRunning,
               "filesToUploadCount": filesToUpload ?? 0,
-              "queueOrder": queueOrder
+              "queueOrder": queueOrder,
+              "isFifoQueueEnabled": isFifoQueueEnabled
           ] as [String : Any]
           
           /*self.session?.getAllTasks(completionHandler: { [weak self] tasks in
