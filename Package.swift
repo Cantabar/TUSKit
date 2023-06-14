@@ -17,7 +17,7 @@ let package = Package(
         // Targets can depend on other targets in this package, and on products in packages this package depends on.
         .target(
             name: "TUSKit",
-            dependencies: []),
+            dependencies: ["MMKV"]),
         .testTarget(
             name: "TUSKitTests",
             dependencies: ["TUSKit"],

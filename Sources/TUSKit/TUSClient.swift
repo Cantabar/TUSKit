@@ -27,7 +27,7 @@ public protocol TUSClientDelegate: AnyObject {
 }
 
 let UPLOAD_MANIFEST_METADATA_KEY = "upload_manifest_id"
-
+let CLIENT_REF_ID_KEY = "client_ref_id"
 
 /// The TUSKit client.
 /// Please refer to the Readme.md on how to use this type.
@@ -224,6 +224,9 @@ public final class TUSClient: NSObject {
             var id: UUID
             if (uploadId != nil) {
                 id = UUID(uuidString: uploadId as! String)!
+            } else if((context?[CLIENT_REF_ID_KEY]) != nil) {
+                // Use UUID generated in react-native if possible
+                id = UUID(uuidString: context![CLIENT_REF_ID_KEY]!) ?? UUID()
             } else {
                 id = UUID()
             }
@@ -784,7 +787,7 @@ public final class TUSClient: NSObject {
                     // Create a truncated copy of the current chunked file that starts from expected offset
                     try files?.truncateChunk(metaData: metaData, offset: offsetDifference)
                     
-                    delegate?.progressFor(id: metaData.id, bytesUploaded: metaData.chunkSize == -1 ? offsetDifference : (metaData.uploadedRange?.upperBound ?? 0), totalBytes: metaData.size)
+                    /*delegate?.progressFor(id: metaData.id, bytesUploaded: metaData.chunkSize == -1 ? offsetDifference : (metaData.uploadedRange?.upperBound ?? 0), totalBytes: metaData.size)*/
                     currentChunkFileSize = try getChunkSize(for: metaData)
                 }
                 
