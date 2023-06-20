@@ -513,14 +513,16 @@ public final class TUSClient: NSObject {
                     return uuid.uuidString
                 })
                 var failedItems: [UploadMetadata] = []
-                let ignoredFromUploadManifestQueue: [UploadMetadata] = []
                 let metaDataItemsUnfiltered = try files?.loadAllMetadata(uuidStrings) ?? []
                 
                 var metaDataItems: [UploadMetadata] = []
                 if (isFifoQueueEnabled) {
                     let uploadManifestQueue = try self.files!.loadUploadQueue()
                     let (priorityQueue, failedQueue) = queueMetadata(metadata: metaDataItemsUnfiltered, queue: uploadManifestQueue)
-                    metaDataItems = priorityQueue + failedQueue
+                    metaDataItems = priorityQueue
+                    if (metaDataItems.count == 0) && processFailedItemsIfEmpty == true {
+                        metaDataItems += failedQueue
+                    }
                 } else {
                     metaDataItems = metaDataItemsUnfiltered.filter({ metaData in
                         if metaData.errorCount > self.retryCount {
@@ -529,18 +531,9 @@ public final class TUSClient: NSObject {
                         }
                         return !metaData.isFinished
                     })
-                }
-                
-                // Safe guard in case the upload queue doesn't work properly to avoid dead locks
-                if(metaDataItems.count == 0 && ignoredFromUploadManifestQueue.count > 0) {
-                    print("TUSClient:startTasks: upload queue fallback: \(metaDataItems.count)")
-                    metaDataItems = ignoredFromUploadManifestQueue
-                }
-                
-                // If list exhausted, process failed items queue
-                if (metaDataItems.count == 0) && processFailedItemsIfEmpty == true {
-                    print("TUSClient:startTasks: main list exhaused, processing failed items...")
-                    metaDataItems = failedItems
+                    if (metaDataItems.count == 0) && processFailedItemsIfEmpty == true {
+                        metaDataItems = failedItems
+                    }
                 }
                 
                 if metaDataItems.count > 0 {
