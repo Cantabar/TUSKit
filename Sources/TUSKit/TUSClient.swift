@@ -6,7 +6,6 @@ import Foundation
 import BackgroundTasks
 import UIKit
 
-
 /// Implement this delegate to receive updates from the TUSClient
 @available(iOS 13.4, macOS 10.13, *)
 public protocol TUSClientDelegate: AnyObject {
@@ -505,7 +504,6 @@ public final class TUSClient: NSObject {
             return
         }
         
-        autoreleasepool {
             do {
                 if !canRunTasks(isFiltered: uuids != nil) {
                     return
@@ -515,48 +513,37 @@ public final class TUSClient: NSObject {
                     return uuid.uuidString
                 })
                 var failedItems: [UploadMetadata] = []
-                var ignoredFromUploadManifestQueue: [UploadMetadata] = []
-                var metaDataItems = try files?.loadAllMetadata(uuidStrings).filter({ metaData in
-                    // Only allow uploads where errors are below an amount
-                    // Commented this out because it was impossible to make work with a queue, downside is if an item continually fails it will block the whole queue
-                    /*if metaData.errorCount > retryCount {
-                        failedItems.append(metaData)
-                        return false
-                    } else {*/
-                        // Check priority of upload queue based on upload manifest ID metadata
-                    if(isFifoQueueEnabled) {
-                        let uploadManifestQueue = try self.files!.loadUploadQueue()
-                        let uploadManifestToPrioritize = uploadManifestQueue.first
-                        if(uploadManifestToPrioritize != nil) {
-                            let uploadManifestId = metaData.context?[UPLOAD_MANIFEST_METADATA_KEY]
-                            if(uploadManifestId != uploadManifestToPrioritize?.uploadManifestId) {
-                                ignoredFromUploadManifestQueue.append(metaData)
-                                return false
-                            }
-                        }
-                        return !metaData.isFinished
-                    } else {
-                        if metaData.errorCount > retryCount {
+                let ignoredFromUploadManifestQueue: [UploadMetadata] = []
+                let metaDataItemsUnfiltered = try files?.loadAllMetadata(uuidStrings) ?? []
+                let uploadManifestQueue = try self.files!.loadUploadQueue()
+                let (priorityQueue, failedQueue) = queueMetadata(metadata: metaDataItemsUnfiltered, queue: uploadManifestQueue)
+                
+                var metaDataItems: [UploadMetadata] = []
+                if (isFifoQueueEnabled) {
+                    metaDataItems = priorityQueue + failedQueue
+                } else {
+                    metaDataItems = metaDataItemsUnfiltered.filter({ metaData in
+                        if metaData.errorCount > self.retryCount {
                             failedItems.append(metaData)
                             return false
                         }
                         return !metaData.isFinished
-                    }
-                   // }
-                })
+                    })
+                }
                 
                 // Safe guard in case the upload queue doesn't work properly to avoid dead locks
-                if(metaDataItems?.count ?? 0 == 0 && ignoredFromUploadManifestQueue.count > 0) {
+                if(metaDataItems.count == 0 && ignoredFromUploadManifestQueue.count > 0) {
+                    print("TUSClient:startTasks: upload queue fallback: \(metaDataItems.count)")
                     metaDataItems = ignoredFromUploadManifestQueue
                 }
                 
                 // If list exhausted, process failed items queue
-                if (metaDataItems?.count ?? 0 == 0) && processFailedItemsIfEmpty == true {
-                    //print("TUSClient processing failed queue")
+                if (metaDataItems.count == 0) && processFailedItemsIfEmpty == true {
+                    print("TUSClient:startTasks: main list exhaused, processing failed items...")
                     metaDataItems = failedItems
                 }
                 
-                if metaDataItems?.count ?? 0 > 0 {
+                if metaDataItems.count > 0 {
                     // Prevent duplicate tasks
                     self.session?.getAllTasks(completionHandler: { [weak self] tasks in
                         //print("Pending tasks count: \(tasks.count)")
@@ -585,7 +572,7 @@ public final class TUSClient: NSObject {
                             }
                             let runningTaskIds = toTaskIds()
                             
-                            for metaData in metaDataItems! {
+                            for metaData in metaDataItems {
                                 uuid = metaData.id.uuidString
                                 
                                 // Prevent running a million requests on a multiplexed HTTP/2 connection
@@ -618,7 +605,47 @@ public final class TUSClient: NSObject {
                 }
                 delegate?.fileError(id: "", errorMessage: "Start Tasks: \(error.localizedDescription)")
             }
+    }
+    
+    private func queueMetadata(metadata: [UploadMetadata], queue: UploadQueue) -> (priorityQueue: [UploadMetadata], failedQueue: [UploadMetadata]) {
+        var priorityQueue: [UploadMetadata] = []
+        var failedQueue: [UploadMetadata] = []
+        
+        for queueItem in queue.uploadManifests {
+            // filter, sort, and exclude finished metadata based on current queue item
+            let sortedMetadata = metadata.filter {
+                $0.context?[UPLOAD_MANIFEST_METADATA_KEY] == queueItem.uploadManifestId && !$0.isFinished
+            }.sorted {
+                guard let index1 = queueItem.uuids.firstIndex(of: $0.id),
+                      let index2 = queueItem.uuids.firstIndex(of: $1.id)
+                else { return false }
+                return index1 < index2
+            }
+
+            for meta in sortedMetadata {
+                // if error count is over 5, add to failed queue and skip this iteration
+                if meta.errorCount > retryCount {
+                    failedQueue.append(meta)
+                    continue
+                }
+                
+                // check if priority queue has reached max limit
+                if priorityQueue.count == maxConcurrentUploads {
+                    break
+                }
+                
+                // add metadata to priority queue
+                priorityQueue.append(meta)
+            }
+            
+            // if we have added any items to the priority queue, we can stop processing the next queues
+            if !priorityQueue.isEmpty && priorityQueue.count == maxConcurrentUploads {
+                break
+            }
         }
+        
+        // return the priority and failed queues
+        return (priorityQueue, failedQueue)
     }
     
     /// Status task to find out where to continue from if endpoint exists in metadata,
