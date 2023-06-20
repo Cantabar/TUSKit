@@ -515,11 +515,11 @@ public final class TUSClient: NSObject {
                 var failedItems: [UploadMetadata] = []
                 let ignoredFromUploadManifestQueue: [UploadMetadata] = []
                 let metaDataItemsUnfiltered = try files?.loadAllMetadata(uuidStrings) ?? []
-                let uploadManifestQueue = try self.files!.loadUploadQueue()
-                let (priorityQueue, failedQueue) = queueMetadata(metadata: metaDataItemsUnfiltered, queue: uploadManifestQueue)
                 
                 var metaDataItems: [UploadMetadata] = []
                 if (isFifoQueueEnabled) {
+                    let uploadManifestQueue = try self.files!.loadUploadQueue()
+                    let (priorityQueue, failedQueue) = queueMetadata(metadata: metaDataItemsUnfiltered, queue: uploadManifestQueue)
                     metaDataItems = priorityQueue + failedQueue
                 } else {
                     metaDataItems = metaDataItemsUnfiltered.filter({ metaData in
