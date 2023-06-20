@@ -36,6 +36,7 @@ let UPLOAD_QUEUE_KEY = "upload_queue"
 /// This type handles the storage for `TUSClient`
 /// It makes sure that files (that are to be uploaded) are properly stored, together with their metaData.
 /// Underwater it uses `FileManager.default`.
+@available(iOS 13.4, *)
 final class Files {
     
     let storageDirectory: URL
@@ -89,10 +90,54 @@ final class Files {
         }
         
         try makeDirectoryIfNeeded(nil)
+        
+        try self.convertOldCacheToMMKV()
     }
     
     static private var documentsDirectory: URL {
         return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    }
+    
+    /// Moves any files from TUS/background to TUS and inserts metadata into MMKV
+    private func convertOldCacheToMMKV() throws {
+        try fileQueue.sync {
+            let uuidDirs = try self.contentsOfDirectory(directory: type(of: self).documentsDirectory.appendingPathComponent("TUS/background"))
+            
+            let decoder = PropertyListDecoder()
+                        
+            try uuidDirs.compactMap { uuidDir in
+                let uuidDirContents = try contentsOfDirectory(directory: uuidDir)
+                let metaDataUrls = uuidDirContents.filter{ $0.pathExtension == "plist" }
+                if(metaDataUrls.isEmpty) {
+                    try FileManager.default.removeItem(at: uuidDir)
+                } else {
+                    let metaDataUrl = metaDataUrls[0]
+                    if let data = try? Data(contentsOf: metaDataUrl) {
+                        let metaData = try? decoder.decode(UploadMetadata.self, from: data)
+                        metaData?.fileDir = metaDataUrl.deletingLastPathComponent()
+                        
+                        guard let metaData = metaData else {
+                            return
+                        }
+                        
+                        // Insert into MMKV
+                        try self.encodeAndStore(metaData: metaData)
+                        
+                        // Move file to TUS/ directory
+                        try self.copyAndChunk(from: metaDataUrl, id: metaData.id, chunkSize: -1)
+                        
+                        // Add upload manifest to queue
+                        guard let uploadManifestId = metaData.context?[UPLOAD_MANIFEST_METADATA_KEY] else {
+                            return
+                        }
+                        self.addFileToUploadManifest(uploadManifestId, uuid: metaData.id)
+                        
+                        // Delete directory in TUS/background
+                        try FileManager.default.removeItem(at: uuidDir)
+                    }
+                }
+            }
+        }
     }
     
     func printFileDirContents(url: URL) throws {
