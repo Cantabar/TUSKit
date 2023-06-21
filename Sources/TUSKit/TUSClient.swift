@@ -6,7 +6,6 @@ import Foundation
 import BackgroundTasks
 import UIKit
 
-
 /// Implement this delegate to receive updates from the TUSClient
 @available(iOS 13.4, macOS 10.13, *)
 public protocol TUSClientDelegate: AnyObject {
@@ -618,7 +617,7 @@ public final class TUSClient: NSObject {
                 else { return false }
                 return index1 < index2
             }
-            
+
             for meta in sortedMetadata {
                 // if error count is over 5, add to failed queue and skip this iteration
                 if meta.errorCount > retryCount {
