@@ -31,24 +31,10 @@ final class UploadMetadata: Codable {
         case chunkSize
         case currentChunk
         case fileExtension
-        case status
     }
     
     var isFinished: Bool {
         size == uploadedRange?.count
-    }
-    
-    private var _status: String?
-    var status: String? {
-        get {
-            queue.sync {
-                _status
-            }
-        } set {
-            queue.async {
-                self._status = newValue
-            }
-        }
     }
     
     private var _id: UUID
@@ -190,7 +176,7 @@ final class UploadMetadata: Codable {
         }
     }
     
-    init(id: UUID, fileDir: URL, uploadURL: URL, size: Int, chunkSize: Int, fileExtension: String, truncatedFileName: String? = nil, customHeaders: [String: String]? = nil, mimeType: String? = nil, context: [String: String]? = nil, status: String? = nil) {
+    init(id: UUID, fileDir: URL, uploadURL: URL, size: Int, chunkSize: Int, fileExtension: String, truncatedFileName: String? = nil, customHeaders: [String: String]? = nil, mimeType: String? = nil, context: [String: String]? = nil) {
         self._id = id
         self._fileDir = fileDir
         self._truncatedFileName = truncatedFileName
@@ -205,7 +191,6 @@ final class UploadMetadata: Codable {
         self.version = 1 // Can't make default property because of Codable
         self.context = context
         self._errorCount = 0
-        self._status = status
     }
     
     init(from decoder: Decoder) throws {
@@ -226,7 +211,6 @@ final class UploadMetadata: Codable {
         fileExtension = try values.decode(String.self, forKey: .fileExtension)
         _currentChunk = try values.decode(Int.self, forKey: .currentChunk)
         _errorCount = try values.decode(Int.self, forKey: .errorCount)
-        _status = try values.decode(String?.self, forKey: .status)
     }
     
     func encode(to encoder: Encoder) throws {
@@ -247,6 +231,5 @@ final class UploadMetadata: Codable {
         try container.encode(fileExtension, forKey: .fileExtension)
         try container.encode(size, forKey: .size)
         try container.encode(_errorCount, forKey: .errorCount)
-        try container.encode(_status, forKey: .status)
     }
 }
