@@ -89,6 +89,7 @@ final class Files {
             }
         }
         
+       try makeDirectoryIfNeeded(nil)
        try self.convertOldCacheToMMKV()
     }
     
