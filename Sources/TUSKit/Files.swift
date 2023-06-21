@@ -1,6 +1,6 @@
 //
 //  Files.swift
-//  
+//
 //
 //  Created by Tjeerd in ‘t Veen on 15/09/2021.
 //
@@ -10,6 +10,8 @@ import Foundation
 enum FilesError: Error {
     case metaDataFileNotFound(uuid: String)
     case uuidDirectoryNotFound(uuid: String)
+    case uploadQueueMissing
+    case cantParseMMKV
 }
 
 extension FilesError: LocalizedError {
@@ -19,15 +21,22 @@ extension FilesError: LocalizedError {
             return NSLocalizedString("Metadata.plist file could not be found \(uuid)", comment: "RELATED_FILE_NOT_FOUND")
         case let .uuidDirectoryNotFound(uuid):
             return NSLocalizedString("UUID directory for file was not found \(uuid)", comment: "UUID_DIRECTORY_NOT_FOUND")
+        case let .uploadQueueMissing:
+            return NSLocalizedString("Upload queue not found", comment: "UPLOAD_QUEUE_NOT_FOUND")
+        case let .cantParseMMKV:
+            return NSLocalizedString("Cannot parse data inside MMKV", comment: "CANT_PARSE_MMKV")
         default:
             return NSLocalizedString("File error", comment: "FILE_ERROR")
         }
     }
 }
 
+let UPLOAD_QUEUE_KEY = "upload_queue"
+
 /// This type handles the storage for `TUSClient`
 /// It makes sure that files (that are to be uploaded) are properly stored, together with their metaData.
 /// Underwater it uses `FileManager.default`.
+@available(iOS 13.4, *)
 final class Files {
     
     let storageDirectory: URL
@@ -35,15 +44,14 @@ final class Files {
     private let fileQueue = DispatchQueue(label: "com.tuskit.files")
     private let uploadQueue = DispatchQueue(label: "com.tuskit.uploadqueue")
 
-    
-    private let metadataFileName = "metadata.plist"
-    
-    private let uploadQueueFileName = "upload_queue.plist"
-    
+    private let mmkv: MMKV
+
     /// Pass a directory to store the local cache in.
     /// - Parameter storageDirectory: Leave nil for the documents dir. Pass a relative path for a dir inside the documents dir. Pass an absolute path for storing files there.
     /// - Throws: File related errors when it can't make a directory at the designated path.
     init(storageDirectory: URL?) throws {
+        self.mmkv = MMKV(mmapID: "metadata")!
+        
         func removeLeadingSlash(url: URL) -> String {
             if url.absoluteString.first == "/" {
                 return String(url.absoluteString.dropFirst())
@@ -81,30 +89,80 @@ final class Files {
             }
         }
         
-        try makeDirectoryIfNeeded(nil)
+       try makeDirectoryIfNeeded(nil)
+       try self.convertOldCacheToMMKV()
     }
     
     static private var documentsDirectory: URL {
         return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
     
+    /// Moves any files from TUS/background to TUS and inserts metadata into MMKV
+    private func convertOldCacheToMMKV() throws {
+        try fileQueue.sync {
+            
+            let doesExist = FileManager.default.fileExists(atPath: type(of: self).documentsDirectory.appendingPathComponent("TUS/background").path, isDirectory: nil)
+            
+            if doesExist {
+                let uuidDirs = try self.contentsOfDirectory(directory: type(of: self).documentsDirectory.appendingPathComponent("TUS/background"))
+                
+                let decoder = PropertyListDecoder()
+                
+                try uuidDirs.compactMap { uuidDir in
+                    let uuidDirContents = try contentsOfDirectory(directory: uuidDir)
+                    let metaDataUrls = uuidDirContents.filter{ $0.pathExtension == "plist" }
+                    if(metaDataUrls.isEmpty) {
+                        try FileManager.default.removeItem(at: uuidDir)
+                    } else {
+                        let metaDataUrl = metaDataUrls[0]
+                        print("URL: \(metaDataUrl)")
+                        if let data = try? Data(contentsOf: metaDataUrl) {
+                            let metaData = try? decoder.decode(UploadMetadata.self, from: data)
+                            metaData?.fileDir = metaDataUrl.deletingLastPathComponent()
+                            
+                            guard let metaData = metaData else {
+                                return
+                            }
+                            
+                            // Insert into MMKV
+                            try self.encodeAndStore(metaData: metaData)
+                            
+                            // Move file to TUS/ directory
+                            try self.copyAndChunk(from: metaDataUrl, id: metaData.id, chunkSize: -1)
+                            
+                            // Add upload manifest to queue
+                            guard let uploadManifestId = metaData.context?[UPLOAD_MANIFEST_METADATA_KEY] else {
+                                return
+                            }
+                            self.addFileToUploadManifest(uploadManifestId, uuid: metaData.id)
+                            
+                            // Delete directory in TUS/background
+                            try FileManager.default.removeItem(at: uuidDir)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
     func printFileDirContents(url: URL) throws {
-        let contents = try self.contentsOfDirectory(directory: url)
+        let contents = try self.contentsOfDirectory(directory: self.storageDirectory)
         print(contents)
+        
+        let contents2 = try self.contentsOfDirectory(directory: url)
+        print(contents2)
     }
     
     /// UploadQueue cannot exist in memory because it will need to be read from the background upload side of things which won't have access to TUSClient memory
     /// So load it from file every time you need to access it as well as write it back to disk every time you update the UploadQueue
     func loadUploadQueue() throws -> UploadQueue {
-        let decoder = PropertyListDecoder()
-        let uploadQueuePath = self.storageDirectory.appendingPathComponent(self.uploadQueueFileName)
-        if let data = try? Data(contentsOf: uploadQueuePath) {
-            guard let uploadQueue = try? decoder.decode(UploadQueue.self, from: data) else {
-                return UploadQueue()
-            }
-            return uploadQueue
+        guard let data = mmkv.data(forKey: UPLOAD_QUEUE_KEY) else {
+            return UploadQueue()
         }
-        return UploadQueue()
+        guard let uploadQueue = try? JSONDecoder().decode(UploadQueue.self, from: data) else {
+            return UploadQueue()
+        }
+        return uploadQueue
     }
     
     /// This needs to exist here so we can use the uploadQueue.sync
@@ -145,44 +203,62 @@ final class Files {
     func loadAllMetadata(_ filterOnUuids: [String]?) throws -> [UploadMetadata] {
         try fileQueue.sync {
 
-            let uuidDirs = try self.contentsOfDirectory(directory: storageDirectory).filter({  uuidDir in
-                if (uuidDir.lastPathComponent == uploadQueueFileName) {
+            let keys: [String] = (mmkv.allKeys() as! [String]).filter({  key in
+                print(key)
+                if(!key.contains("metadata:")) {
                     return false
                 }
+                let uuid = key.replacingOccurrences(of: "metadata:", with: "")
                 if filterOnUuids == nil {
                     return true
                 }
-                return filterOnUuids!.contains(where: { uuid in
-                    return uuid == uuidDir.lastPathComponent
+                return filterOnUuids!.contains(where: { filterUuid in
+                    return filterUuid == uuid as! String
                 })
-            })
+            }) as! [String]
             
-            // if you want to filter the directory contents you can do like this:
-            let decoder = PropertyListDecoder()
+            var metaDatas: [UploadMetadata] = []
             
-            let metaData: [UploadMetadata] = try uuidDirs.compactMap { uuidDir in
-                let uuidDirContents = try contentsOfDirectory(directory: uuidDir)
-                let metaDataUrls = uuidDirContents.filter{ $0.pathExtension == "plist" }
-                if(metaDataUrls.isEmpty) {
-                    try FileManager.default.removeItem(at: uuidDir)
-                    throw FilesError.metaDataFileNotFound(uuid: uuidDir.lastPathComponent)
+            do {
+                try keys.compactMap { key in
+                    let uuid = key.replacingOccurrences(of: "metadata:", with: "")
+                    guard let metaDataData = mmkv.data(forKey: key) else {
+                        throw FilesError.metaDataFileNotFound(uuid: uuid)
+                    }
+                    let str = String(data: metaDataData ?? Data(), encoding: .utf8) ?? ""
+                    let metaData = try JSONDecoder().decode(UploadMetadata.self, from: metaDataData)
+                    if(metaData != nil) {
+                        let uuidDir = storageDirectory.appendingPathComponent(uuid)
+                        let uuidDirContents = try contentsOfDirectory(directory: uuidDir)
+                        if(!uuidDirContents.isEmpty) {
+                            let metaDataUrl = uuidDirContents[0]
+                            
+                            
+                            // The documentsDirectory can change between restarts (at least during testing). So we update the filePath to match the existing plist again. To avoid getting an out of sync situation where the filePath still points to a dir in a different directory than the plist.
+                            // (The plist and file to upload should always be in the same dir together).
+                            metaData.fileDir = metaDataUrl.deletingLastPathComponent()
+                            metaDatas.append(metaData)
+                        }
+                    } else {
+                        print("Metadata: \(key)\n\(str)")
+                    }
                 }
-                let metaDataUrl = metaDataUrls[0]
-                if let data = try? Data(contentsOf: metaDataUrl) {
-                    let metaData = try? decoder.decode(UploadMetadata.self, from: data)
-                    
-                    // The documentsDirectory can change between restarts (at least during testing). So we update the filePath to match the existing plist again. To avoid getting an out of sync situation where the filePath still points to a dir in a different directory than the plist.
-                    // (The plist and file to upload should always be in the same dir together).
-                    metaData?.fileDir = metaDataUrl.deletingLastPathComponent()
-                    
-                    return metaData
-                }
-                
-                // Improvement: Handle error when it can't be decoded?
-                return nil
+            } catch DecodingError.dataCorrupted(let context) {
+                print(context)
+            } catch DecodingError.keyNotFound(let key, let context) {
+                print("Key '\(key)' not found:", context.debugDescription)
+                print("codingPath:", context.codingPath)
+            } catch DecodingError.valueNotFound(let value, let context) {
+                print("Value '\(value)' not found:", context.debugDescription)
+                print("codingPath:", context.codingPath)
+            } catch DecodingError.typeMismatch(let type, let context) {
+                print("Type '\(type)' mismatch:", context.debugDescription)
+                print("codingPath:", context.codingPath)
+            } catch {
+                print("error: ", error)
             }
             
-            return metaData
+            return metaDatas
         }
     }
     
@@ -253,6 +329,20 @@ final class Files {
         let fileSize = try getFileSize(filePath: location)
         var currentSize = 0
         var chunk = 0
+        
+        // Check if react-native side has cached file already for us
+        if(chunkSize == -1) {
+            let fileName = "0.\(location.pathExtension)"
+            let firstChunk = uuidDir.appendingPathComponent(fileName)
+            let doesExist = FileManager.default.fileExists(atPath: firstChunk.path, isDirectory: nil)
+            print(firstChunk.path)
+            if(doesExist) {
+                return uuidDir
+            } else {
+                try? printFileDirContents(url: uuidDir)
+            }
+        }
+        
         var range = 0..<min(chunkSize == -1 ? fileSize : chunkSize, fileSize)
         while (range.upperBound <= fileSize && range.upperBound != range.lowerBound) {
             let fileName = "\(chunk).\(location.pathExtension)"
@@ -271,15 +361,17 @@ final class Files {
         return uuidDir
     }
     
-    /// Removes metadata and its related file from disk
+    /// Removes metadata from MMKV but leaves file on disk. RN side will verify file was received by server before removing file from cache.
     /// - Parameter metaData: The metadata description
     /// - Parameter updateManifest: Defaults to true, but if false will not update manifest (useful if removing all files for a manifest)
     /// - Throws: Any error from FileManager when removing a file.
     func removeFile(_ metaData: UploadMetadata, _ updateManifest: Bool = true) throws {
         let fileDir = metaData.fileDir
+        print(fileDir)
         
         try fileQueue.sync {
-            try FileManager.default.removeItem(at: fileDir)
+            mmkv.removeValue(forKey: "metadata:\(metaData.id.uuidString)")
+            //try FileManager.default.removeItem(at: fileDir)
         }
         
         try uploadQueue.sync {
@@ -325,19 +417,10 @@ final class Files {
     /// - Throws: Any error related to file handling
     /// - Returns: The URL of the location where the metadata is stored.
     @discardableResult
-    func encodeAndStore(metaData: UploadMetadata) throws -> URL {
+    func encodeAndStore(metaData: UploadMetadata) throws -> Void {
         try fileQueue.sync {
-            guard FileManager.default.fileExists(atPath: metaData.fileDir.path) else {
-                // Could not find the directory that's related to this metadata.
-                throw FilesError.uuidDirectoryNotFound(uuid: metaData.id.uuidString)
-            }
-            
-            let targetLocation = metaData.fileDir.appendingPathComponent(metadataFileName)
-            
-            let encoder = PropertyListEncoder()
-            let encodedData = try encoder.encode(metaData)
-            try encodedData.write(to: targetLocation, options: .atomic)
-            return targetLocation
+            let encodedData = try JSONEncoder().encode(metaData)
+            mmkv.set(encodedData, forKey: "metadata:\(metaData.id.uuidString)")
         }
     }
     
@@ -347,11 +430,8 @@ final class Files {
     /// - Throws: Any error related to file handling
     @discardableResult
     func encodeAndStoreUploadQueue(_ queueToEncode: UploadQueue) throws {
-        let uploadQueuePath =  storageDirectory.appendingPathComponent(uploadQueueFileName)
-       
-        let encoder = PropertyListEncoder()
-        let encodedData = try encoder.encode(queueToEncode)
-        try encodedData.write(to: uploadQueuePath, options: .atomic)
+        let encodedData = try JSONEncoder().encode(queueToEncode)
+        mmkv.set(encodedData, forKey: UPLOAD_QUEUE_KEY)
     }
     
     /// Load metadata from store and find matching one by id
