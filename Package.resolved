@@ -1,0 +1,34 @@
+{
+  "object": {
+    "pins": [
+      {
+        "package": "swift-log",
+        "repositoryURL": "https://github.com/apple/swift-log.git",
+        "state": {
+          "branch": null,
+          "revision": "32e8d724467f8fe623624570367e3d50c5638e46",
+          "version": "1.5.2"
+        }
+      },
+      {
+        "package": "swift-log-file",
+        "repositoryURL": "https://github.com/crspybits/swift-log-file.git",
+        "state": {
+          "branch": null,
+          "revision": "aa94b38bf88c7d9cbc87ceafcdffadaffbc2bffa",
+          "version": "0.1.0"
+        }
+      },
+      {
+        "package": "XCGLogger",
+        "repositoryURL": "https://github.com/DaveWoodCom/XCGLogger.git",
+        "state": {
+          "branch": null,
+          "revision": "a9c4667b247928a29bdd41be2ec2c8d304215a54",
+          "version": "7.0.1"
+        }
+      }
+    ]
+  },
+  "version": 1
+}

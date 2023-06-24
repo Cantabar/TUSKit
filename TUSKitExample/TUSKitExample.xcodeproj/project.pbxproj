@@ -17,6 +17,7 @@
 		2EB9149F26F09D7800548562 /* TUSKitExampleUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EB9149E26F09D7800548562 /* TUSKitExampleUITests.swift */; };
 		2EB914B826F0A2CE00548562 /* TUSKit in Frameworks */ = {isa = PBXBuildFile; productRef = 2EB914B726F0A2CE00548562 /* TUSKit */; };
 		2EB914BA26F0B11C00548562 /* PhotoPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EB914B926F0B11C00548562 /* PhotoPicker.swift */; };
+		A962331B2A478C21005236DC /* Logging in Frameworks */ = {isa = PBXBuildFile; productRef = A962331A2A478C21005236DC /* Logging */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -60,6 +61,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A962331B2A478C21005236DC /* Logging in Frameworks */,
 				2EB914B826F0A2CE00548562 /* TUSKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -169,6 +171,7 @@
 			name = TUSKitExample;
 			packageProductDependencies = (
 				2EB914B726F0A2CE00548562 /* TUSKit */,
+				A962331A2A478C21005236DC /* Logging */,
 			);
 			productName = TUSKitExample;
 			productReference = 2EB9147926F09D7600548562 /* TUSKitExample.app */;
@@ -242,6 +245,7 @@
 			);
 			mainGroup = 2EB9147026F09D7600548562;
 			packageReferences = (
+				A96233192A478C21005236DC /* XCRemoteSwiftPackageReference "swift-log" */,
 			);
 			productRefGroup = 2EB9147A26F09D7600548562 /* Products */;
 			projectDirPath = "";
@@ -387,7 +391,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 14.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -442,7 +446,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 14.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
@@ -461,7 +465,7 @@
 				DEVELOPMENT_ASSET_PATHS = "\"TUSKitExample/Preview Content\"";
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = TUSKitExample/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 14.1;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -482,7 +486,7 @@
 				DEVELOPMENT_ASSET_PATHS = "\"TUSKitExample/Preview Content\"";
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = TUSKitExample/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 14.1;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -501,7 +505,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				INFOPLIST_FILE = TUSKitExampleTests/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 14.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -522,7 +526,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				INFOPLIST_FILE = TUSKitExampleTests/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 14.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -615,10 +619,26 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		A96233192A478C21005236DC /* XCRemoteSwiftPackageReference "swift-log" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-log.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		2EB914B726F0A2CE00548562 /* TUSKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = TUSKit;
+		};
+		A962331A2A478C21005236DC /* Logging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A96233192A478C21005236DC /* XCRemoteSwiftPackageReference "swift-log" */;
+			productName = Logging;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
