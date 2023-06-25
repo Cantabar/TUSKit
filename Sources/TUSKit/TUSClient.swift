@@ -26,6 +26,7 @@ public protocol TUSClientDelegate: AnyObject {
 }
 
 let UPLOAD_MANIFEST_METADATA_KEY = "upload_manifest_id"
+let PROJECT_ID_KEY = "project_id"
 
 
 /// The TUSKit client.
@@ -166,7 +167,7 @@ public final class TUSClient: NSObject {
             // Remove from disk
             do {
                 try self?.files?.removeFilesForUuids(uuids)
-                FileLogger.notice("TUSClient canceled \(String(describing: uuids))")
+                FileLogger.instance?.logger.notice("TUSClient canceled \(String(describing: uuids), privacy: .public))")
                 self?.delegate?.cancelFinished(errorMessage: "")
             } catch let error {
                 self?.delegate?.cancelFinished(errorMessage: error.localizedDescription)
@@ -323,7 +324,7 @@ public final class TUSClient: NSObject {
 
     public func freeMemory() {
         if(!isSessionInvalidated) {
-            FileLogger.notice("TUSClient invalidating session to free memory")
+            FileLogger.instance?.logger.notice("TUSClient invalidating session to free memory")
             self.session?.finishTasksAndInvalidate()
             self.isSessionInvalidated = true
         }
@@ -345,18 +346,18 @@ public final class TUSClient: NSObject {
     /// Pause all new uploads but let already running finish
     public func pause() {
         self.isPaused = true
-        FileLogger.notice("TUSClient paused")
+        FileLogger.instance?.logger.notice("TUSClient paused")
     }
     
     /// Starts tasks and also toggles pause to true, whereas startTasks will only work if not paused
     public func resume() {
-        FileLogger.notice("TUSClient resumed")
+        FileLogger.instance?.logger.notice("TUSClient resumed")
         self.isPaused = false
         self.startTasks(for: nil, processFailedItemsIfEmpty: true)
     }
     
     public func updateAuthorizationHeaders() {
-        FileLogger.notice("TUSClient updating authorization headers")
+        FileLogger.instance?.logger.notice("TUSClient updating authorization headers")
         autoreleasepool {
             self.files?.updateAuthorizationHeaders()
         }
@@ -369,7 +370,7 @@ public final class TUSClient: NSObject {
     @discardableResult
     public func retry(id: UUID) throws -> (didRetry: Bool, reason: String) {
         do {
-            FileLogger.notice("TUSClient retrying \(id)")
+            FileLogger.instance?.logger.notice("TUSClient retrying \(id, privacy: .public))")
             // @todo URLSession getAllTasks should run to verify if task is already running
             //guard uploads[id] == nil else { return (false, "Already scheduled") }
             guard let metaData = try files?.findMetadata(id: id) else {
@@ -392,7 +393,7 @@ public final class TUSClient: NSObject {
     /// This method allows react-native app to sync with the metadata filesystem
     @discardableResult
     public func sync() -> [[String:Any]] {
-        FileLogger.notice("TUSClient syncing updates")
+        FileLogger.instance?.logger.notice("TUSClient syncing updates")
         if(updatesToSync.count == 0) {
             getUpdatesToSync()
         }
@@ -511,11 +512,11 @@ public final class TUSClient: NSObject {
     
     public func removeUploadManifest(_ uploadManifestId: String) -> Bool {
         do {
-            FileLogger.notice("TUSClient removing upload manifest \(uploadManifestId)")
+            FileLogger.instance?.logger.notice("TUSClient removing upload manifest \(uploadManifestId, privacy: .public))")
             let result = try self.files!.removeUploadManifest(uploadManifestId)
             return result
         }  catch let error {
-            FileLogger.error("TUSClient.removeUploadManifest \(error.localizedDescription)")
+            FileLogger.instance?.logger.error("TUSClient.removeUploadManifest \(error.localizedDescription, privacy: .public))")
             return false
         }
     }
@@ -528,7 +529,7 @@ public final class TUSClient: NSObject {
         
         do {
             if !canRunTasks(isFiltered: uuids != nil) {
-                FileLogger.notice("TUSClient.startTasks cannot run tasks")
+                FileLogger.instance?.logger.notice("TUSClient.startTasks cannot run tasks")
                 return
             }
             
@@ -593,7 +594,9 @@ public final class TUSClient: NSObject {
                             
                             // Prevent running a million requests on a multiplexed HTTP/2 connection
                             if !self.canRunTask(isFiltered: uuids != nil) {
-                                FileLogger.notice("TUSClient.startTasks cannot run task \(uuid)")
+                                let projectId: String = metaData.context?[PROJECT_ID_KEY] ?? ""
+                                let uploadManifestId: String = metaData.context?[UPLOAD_MANIFEST_METADATA_KEY] ?? ""
+                                FileLogger.instance?.logger.notice("TUSClient.startTasks cannot run task UUID: \(uuid, privacy: .public) ProjectId: \(projectId, privacy: .public) ManifestId: \(uploadManifestId, privacy: .public)")
                                 return
                             }
                             
@@ -602,7 +605,7 @@ public final class TUSClient: NSObject {
                             if !isRunning {
                                 try self.startTask(for: metaData)
                             } else {
-                                FileLogger.notice("TUSClient.startTasks \(uuid) already running, skipping to prevent duplicate task")
+                                FileLogger.instance?.logger.notice("TUSClient.startTasks \(uuid, privacy: .public)) already running, skipping to prevent duplicate task")
                             }
                         }
                         
@@ -612,15 +615,15 @@ public final class TUSClient: NSObject {
                             self?.isStartingAllTasks = false
                         }
                         self?.delegate?.fileError(id: uuid, errorMessage: "Start Tasks getAllTasks: \(error.localizedDescription)")
-                        FileLogger.error("TUSClient.startTasks \(error.localizedDescription)")
+                        FileLogger.instance?.logger.error("TUSClient.startTasks \(error.localizedDescription, privacy: .public)")
                     }
                 })
             } else {
-                FileLogger.notice("TUSClient.startTasks didnt find any tasks to run")
+                FileLogger.instance?.logger.notice("TUSClient.startTasks didnt find any tasks to run")
                 self.isStartingAllTasks = false
             }
         } catch (let error) {
-            FileLogger.error("TUSClient.startTasks \(error.localizedDescription)")
+            FileLogger.instance?.logger.error("TUSClient.startTasks \(error.localizedDescription, privacy: .public)")
             if uuids == nil {
                 isStartingAllTasks = false
             }
@@ -678,19 +681,21 @@ public final class TUSClient: NSObject {
         }
         
         if(metaData.isFinished) {
-            FileLogger.notice("TUSClient.startTask \(metaData.id) skipped because isFinished")
+            let projectId: String = metaData.context?[PROJECT_ID_KEY] ?? ""
+            let uploadManifestId: String = metaData.context?[UPLOAD_MANIFEST_METADATA_KEY] ?? ""
+            FileLogger.instance?.logger.notice("TUSClient.startTask UUID: \(metaData.id, privacy: .public)) ProjectId: \(projectId, privacy: .public) ManifestId: \(uploadManifestId, privacy: .public) skipped because isFinished")
             return
         }
         
         // Prevent running a million requests on a multiplexed HTTP/2 connection
         if uploadTasksRunning >= maxConcurrentUploads {
-            FileLogger.notice("TUSClient.startTask \(metaData.id) skipped because max tasks running")
+            FileLogger.instance?.logger.notice("TUSClient.startTask \(metaData.id, privacy: .public)) skipped because max tasks running")
             return
         }
 
          // Prevent using invalidated session
         if isSessionInvalidated {
-            FileLogger.notice("TUSClient.startTask \(metaData.id) skipped because session is invalidated")
+            FileLogger.instance?.logger.notice("TUSClient.startTask \(metaData.id, privacy: .public)) skipped because session is invalidated")
             return
         }
 
@@ -708,7 +713,7 @@ public final class TUSClient: NSObject {
         
         do {
             guard let location = response.locationHeader() else {
-                FileLogger.error("TUSClient.processCreationTaskResult \(id) missing location header")
+                FileLogger.instance?.logger.error("TUSClient.processCreationTaskResult \(id, privacy: .public) missing location header")
                 throw TUSClientError.couldNotCreateFileOnServer(responseCode: response.statusCode)
             }
             
@@ -919,7 +924,7 @@ public final class TUSClient: NSObject {
     
     private func processFailedTask(for id: String, errorMessage: String) {
         do {
-            FileLogger.error("TUSClient.processFailedTask \(id) \(errorMessage)")
+            FileLogger.instance?.logger.error("TUSClient.processFailedTask \(id, privacy: .public) \(errorMessage, privacy: .public)")
             if uploadTasksRunning > 0 {
                 uploadTasksRunning -= 1
             }
@@ -948,7 +953,7 @@ public final class TUSClient: NSObject {
                 delegate?.uploadFailed(id: metaData.id, error: errorMessage)
             }
         } catch let fileError {
-            FileLogger.error("TUSClient.processFailedTask file error \(id) \(fileError.localizedDescription)")
+            FileLogger.instance?.logger.error("TUSClient.processFailedTask file error \(id, privacy: .public) \(fileError.localizedDescription, privacy: .public)")
             startTasks(for: nil)
             // Make sure we pass over original error message along with any new error messages
             // specifically so we can parse UUID out of it in react-native if the error `metaDataFileNotFound`
@@ -968,10 +973,10 @@ public final class TUSClient: NSObject {
             // Make sure maximum tasks are running if any exist
             startTasks(for: nil, processFailedItemsIfEmpty: true)
         } catch let error {
-            FileLogger.error("TUSClient.processFinishedFile file error \(metaData.id) \(error.localizedDescription)")
+            FileLogger.instance?.logger.error("TUSClient.processFinishedFile file error \(metaData.id, privacy: .public) \(error.localizedDescription, privacy: .public)")
             delegate?.fileError(id: metaData.id.uuidString, errorMessage: error.localizedDescription)
         }
-        FileLogger.notice("TUSClient.processFinishedFile finished \(metaData.id)")
+        FileLogger.instance?.logger.notice("TUSClient.processFinishedFile finished \(metaData.id, privacy: .public))")
         delegate?.didFinishUpload(id: metaData.id)
     }
 }
@@ -981,7 +986,7 @@ public final class TUSClient: NSObject {
 extension TUSClient: URLSessionTaskDelegate {
     
     public func urlSession(_ session: URLSession, taskIsWaitingForConnectivity task: URLSessionTask) {
-        FileLogger.notice("TUSClient.URLSessionTaskDelegate waiting for connectivity")
+        FileLogger.instance?.logger.notice("TUSClient.URLSessionTaskDelegate waiting for connectivity")
     }
     
     /*public func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64, totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
@@ -998,7 +1003,7 @@ extension TUSClient: URLSessionTaskDelegate {
         
         do {
             guard let taskDescription = try task.toTaskDescription() else {
-                FileLogger.error("TUSClient.urlSessionDidCompleteWithError  couldnt get task description")
+                FileLogger.instance?.logger.error("TUSClient.urlSessionDidCompleteWithError  couldnt get task description")
                 return
             }
             
@@ -1046,14 +1051,14 @@ extension TUSClient: URLSessionTaskDelegate {
                 break
             }
         } catch let error {
-            FileLogger.error("TUSClient.urlSessionDidCompleteWithError \(error.localizedDescription)")
+            FileLogger.instance?.logger.error("TUSClient.urlSessionDidCompleteWithError \(error.localizedDescription, privacy: .public)")
             do {
                 guard let taskDescription = try task.toTaskDescription() else {
                     return
                 }
                 processFailedTask(for: taskDescription.uuid, errorMessage: error.localizedDescription)
             } catch _ {
-                FileLogger.error("TUSClient.urlSessionDidCompleteWithError horrible error")
+                FileLogger.instance?.logger.error("TUSClient.urlSessionDidCompleteWithError horrible error")
                 // @todo handle horrible error here
             }
         }
@@ -1079,7 +1084,7 @@ extension TUSClient: URLSessionDelegate {
     }
     
     public func urlSession(_ session: URLSession, didBecomeInvalidWithError error: Error?) {
-        FileLogger.error("TUSClient.didBecomeInvalidWithError \(String(describing: error?.localizedDescription ?? ""))")
+        FileLogger.instance?.logger.error("TUSClient.didBecomeInvalidWithError \(String(describing: error?.localizedDescription ?? ""), privacy: .public)")
 
         self.isSessionInvalidated = true
         self.initSession()
