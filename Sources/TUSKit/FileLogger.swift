@@ -2,12 +2,12 @@ import Foundation
 import OSLog
 
 final class FileLogger: ObservableObject {
-    private static var instance: FileLogger? = nil
+    static var instance: FileLogger? = nil
     
     let logger: Logger = {
         let logger = Logger(
             subsystem: Bundle.main.bundleIdentifier!,
-            category: String(describing: FileLogger.self)
+            category: "TUS"
         )
         return logger
     }()
@@ -24,13 +24,6 @@ final class FileLogger: ObservableObject {
         if(FileLogger.instance != nil) {
             FileLogger.instance = nil
         }
-    }
-    
-    class func notice(_ message: String) {
-        FileLogger.instance?.logger.notice("\(message)")
-    }
-    class func error(_ message: String) {
-        FileLogger.instance?.logger.error("\(message)")
     }
     
     class func export() -> [String] {
