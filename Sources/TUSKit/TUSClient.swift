@@ -254,7 +254,7 @@ public final class TUSClient: NSObject {
                 }
                 
                 self.files!.addFileToUploadManifest(uploadManifestId, uuid: id)
-                try startTask(for: metaData)
+                //try startTask(for: metaData)
             }
             
             return id
