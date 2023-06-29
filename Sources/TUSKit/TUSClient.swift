@@ -947,21 +947,14 @@ public final class TUSClient: NSObject {
             try saveMetadata(metaData: metaData)
             
             let canRetry = metaData.errorCount <= retryCount
-            if canRetry {
-                do {
-                    try startTask(for: metaData)
-                }
-                catch let otherError {
-                    startTasks(for: nil)
-                    delegate?.uploadFailed(id: metaData.id, error: otherError.localizedDescription)
-                }
-            } else { // Exhausted all retries, reporting back as failure.
-                startTasks(for: nil)
+            if !canRetry {
+                // Exhausted all retries, reporting back as failure.
                 if(errorMessage.contains("couldn’t be opened because there is no such file")) {
                     try files?.printFileDirContents(url: metaData.fileDir)
                 }
                 delegate?.uploadFailed(id: metaData.id, error: errorMessage)
             }
+            startTasks(for: nil)
         } catch let fileError {
             FileLogger.instance?.logger.error("TUSClient.processFailedTask file error \(id, privacy: .public) \(fileError.localizedDescription, privacy: .public)")
             startTasks(for: nil)
