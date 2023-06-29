@@ -31,6 +31,7 @@ final class UploadMetadata: Codable {
         case chunkSize
         case currentChunk
         case fileExtension
+        case earliestUploadAttempt
     }
     
     var isFinished: Bool {
@@ -176,6 +177,21 @@ final class UploadMetadata: Codable {
         }
     }
     
+    private var _earliestUploadAttempt: Date?
+    var earliestUploadAttempt: Date? {
+        get {
+            queue.sync {
+                _earliestUploadAttempt
+            }
+        } set {
+            queue.sync {
+                _earliestUploadAttempt = newValue
+            }
+        }
+    }
+    
+    
+    
     init(id: UUID, fileDir: URL, uploadURL: URL, size: Int, chunkSize: Int, fileExtension: String, truncatedFileName: String? = nil, customHeaders: [String: String]? = nil, mimeType: String? = nil, context: [String: String]? = nil) {
         self._id = id
         self._fileDir = fileDir
@@ -191,6 +207,7 @@ final class UploadMetadata: Codable {
         self.version = 1 // Can't make default property because of Codable
         self.context = context
         self._errorCount = 0
+        self._earliestUploadAttempt = Date()
     }
     
     init(from decoder: Decoder) throws {
@@ -211,6 +228,7 @@ final class UploadMetadata: Codable {
         fileExtension = try values.decode(String.self, forKey: .fileExtension)
         _currentChunk = try values.decode(Int.self, forKey: .currentChunk)
         _errorCount = try values.decode(Int.self, forKey: .errorCount)
+        _earliestUploadAttempt = try values.decode(Date.self, forKey: .earliestUploadAttempt)
     }
     
     func encode(to encoder: Encoder) throws {
@@ -231,5 +249,6 @@ final class UploadMetadata: Codable {
         try container.encode(fileExtension, forKey: .fileExtension)
         try container.encode(size, forKey: .size)
         try container.encode(_errorCount, forKey: .errorCount)
+        try container.encode(_earliestUploadAttempt, forKey: .earliestUploadAttempt)
     }
 }
