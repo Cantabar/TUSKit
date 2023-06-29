@@ -634,6 +634,9 @@ public final class TUSClient: NSObject {
     private func queueMetadata(metadata: [UploadMetadata], queue: UploadQueue) -> (priorityQueue: [UploadMetadata], failedQueue: [UploadMetadata]) {
         var priorityQueue: [UploadMetadata] = []
         var failedQueue: [UploadMetadata] = []
+        var delayedQueue: [UploadMetadata] = []
+        
+        let currentDate = Date()
         
         for queueItem in queue.uploadManifests {
             // filter, sort, and exclude finished metadata based on current queue item
@@ -647,6 +650,12 @@ public final class TUSClient: NSObject {
             }
 
             for meta in sortedMetadata {
+                // if earliestNextAttempt is in the future, skip this iteration
+                if let nextAttemptDate = meta.earliestNextAttempt, nextAttemptDate > currentDate {
+                    delayedQueue.append(meta)
+                    continue
+                }
+                
                 // if error count is over 5, add to failed queue and skip this iteration
                 if meta.errorCount > retryCount {
                     failedQueue.append(meta)
@@ -933,7 +942,8 @@ public final class TUSClient: NSObject {
             let metaData = try loadMetadata(for: id)
             
             // Update error count
-            metaData.errorCount += 1
+            //metaData.errorCount += 1
+            metaData.indicateUploadFailure()
             try saveMetadata(metaData: metaData)
             
             let canRetry = metaData.errorCount <= retryCount
