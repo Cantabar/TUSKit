@@ -31,6 +31,7 @@ final class UploadMetadata: Codable {
         case chunkSize
         case currentChunk
         case fileExtension
+        case earliestNextAttempt
     }
     
     var isFinished: Bool {
@@ -176,6 +177,41 @@ final class UploadMetadata: Codable {
         }
     }
     
+    private var _earliestNextAttempt: Date?
+    var earliestNextAttempt: Date? {
+        get {
+            queue.sync {
+                _earliestNextAttempt
+            }
+        } set {
+            queue.sync {
+                _earliestNextAttempt = newValue
+            }
+        }
+    }
+    
+    private func calculateEarliestNextAttempt() -> Date {
+        let retryCount = self._errorCount
+        let baseRetryTime: TimeInterval = 0.5
+        let maxRetryTime: TimeInterval = 30.0
+
+        /// If retryCount continues to grow we don't need to do the math, just return with the max delay
+        if retryCount >= 10 {
+            return Date().addingTimeInterval(maxRetryTime)
+        }
+
+        var delay = baseRetryTime * pow(2, Double(retryCount))
+        delay = min(delay, maxRetryTime)
+        return Date().addingTimeInterval(delay)
+    }
+
+    func indicateUploadFailure() {
+        queue.sync {
+            self._errorCount += 1
+            self._earliestNextAttempt = self.calculateEarliestNextAttempt()
+        }
+    }
+    
     init(id: UUID, fileDir: URL, uploadURL: URL, size: Int, chunkSize: Int, fileExtension: String, truncatedFileName: String? = nil, customHeaders: [String: String]? = nil, mimeType: String? = nil, context: [String: String]? = nil) {
         self._id = id
         self._fileDir = fileDir
@@ -191,6 +227,7 @@ final class UploadMetadata: Codable {
         self.version = 1 // Can't make default property because of Codable
         self.context = context
         self._errorCount = 0
+        self._earliestNextAttempt = Date()
     }
     
     init(from decoder: Decoder) throws {
@@ -211,6 +248,7 @@ final class UploadMetadata: Codable {
         fileExtension = try values.decode(String.self, forKey: .fileExtension)
         _currentChunk = try values.decode(Int.self, forKey: .currentChunk)
         _errorCount = try values.decode(Int.self, forKey: .errorCount)
+        _earliestNextAttempt = try values.decode(Date.self, forKey: .earliestNextAttempt)
     }
     
     func encode(to encoder: Encoder) throws {
@@ -231,5 +269,6 @@ final class UploadMetadata: Codable {
         try container.encode(fileExtension, forKey: .fileExtension)
         try container.encode(size, forKey: .size)
         try container.encode(_errorCount, forKey: .errorCount)
+        try container.encode(_earliestNextAttempt, forKey: .earliestNextAttempt)
     }
 }
