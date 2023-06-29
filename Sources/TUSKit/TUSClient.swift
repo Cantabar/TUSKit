@@ -633,7 +633,6 @@ public final class TUSClient: NSObject {
     
     private func queueMetadata(metadata: [UploadMetadata], queue: UploadQueue) -> (priorityQueue: [UploadMetadata], failedQueue: [UploadMetadata]) {
         var priorityQueue: [UploadMetadata] = []
-        var failedQueue: [UploadMetadata] = []
         var delayedQueue: [UploadMetadata] = []
         
         let currentDate = Date()
@@ -653,12 +652,7 @@ public final class TUSClient: NSObject {
                 // if earliestNextAttempt is in the future, skip this iteration
                 if let nextAttemptDate = meta.earliestNextAttempt, nextAttemptDate > currentDate {
                     delayedQueue.append(meta)
-                    continue
-                }
-                
-                // if error count is over 5, add to failed queue and skip this iteration
-                if meta.errorCount > retryCount {
-                    failedQueue.append(meta)
+                    print("TUSClient:queueMetadata: skipping \(meta.id) item due to future earliestNextAttempt")
                     continue
                 }
                 
@@ -669,6 +663,7 @@ public final class TUSClient: NSObject {
                 
                 // add metadata to priority queue
                 priorityQueue.append(meta)
+                print("TUSClient:queueMetadata: Adding \(meta.id) to queue")
             }
             
             // if we have added any items to the priority queue, we can stop processing the next queues
@@ -678,7 +673,7 @@ public final class TUSClient: NSObject {
         }
         
         // return the priority and failed queues
-        return (priorityQueue, failedQueue)
+        return (priorityQueue, delayedQueue)
     }
     
     /// Status task to find out where to continue from if endpoint exists in metadata,
@@ -934,6 +929,7 @@ public final class TUSClient: NSObject {
     private func processFailedTask(for id: String, errorMessage: String) {
         do {
             FileLogger.instance?.logger.error("TUSClient.processFailedTask \(id, privacy: .public) \(errorMessage, privacy: .public)")
+            print("TUSClient.processFailedTask \(id) \(errorMessage)")
             if uploadTasksRunning > 0 {
                 uploadTasksRunning -= 1
             }
@@ -942,7 +938,6 @@ public final class TUSClient: NSObject {
             let metaData = try loadMetadata(for: id)
             
             // Update error count
-            //metaData.errorCount += 1
             metaData.indicateUploadFailure()
             try saveMetadata(metaData: metaData)
             

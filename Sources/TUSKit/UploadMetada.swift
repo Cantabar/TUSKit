@@ -191,12 +191,12 @@ final class UploadMetadata: Codable {
     }
     
     private func calculateEarliestNextAttempt() -> Date {
-        let retryCount = _errorCount
+        let retryCount = self._errorCount
         let baseRetryTime: TimeInterval = 0.5
-        let maxRetryTime: TimeInterval = 15.0
+        let maxRetryTime: TimeInterval = 30.0
 
         /// If retryCount continues to grow we don't need to do the math, just return with the max delay
-        if retryCount >= 5 {
+        if retryCount >= 10 {
             return Date().addingTimeInterval(maxRetryTime)
         }
 
@@ -207,8 +207,8 @@ final class UploadMetadata: Codable {
 
     func indicateUploadFailure() {
         queue.sync {
-            self.errorCount += 1
-            self.earliestNextAttempt = self.calculateEarliestNextAttempt()
+            self._errorCount += 1
+            self._earliestNextAttempt = self.calculateEarliestNextAttempt()
         }
     }
     
