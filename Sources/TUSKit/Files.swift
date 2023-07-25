@@ -7,39 +7,20 @@
 
 import Foundation
 
-enum FilesError: Error {
-    case metaDataFileNotFound(uuid: String)
-    case uuidDirectoryNotFound(uuid: String)
-}
-
-extension FilesError: LocalizedError {
-    var errorDescription: String? {
-        switch self {
-        case let .metaDataFileNotFound(uuid):
-            return NSLocalizedString("Metadata.plist file could not be found \(uuid)", comment: "RELATED_FILE_NOT_FOUND")
-        case let .uuidDirectoryNotFound(uuid):
-            return NSLocalizedString("UUID directory for file was not found \(uuid)", comment: "UUID_DIRECTORY_NOT_FOUND")
-        default:
-            return NSLocalizedString("File error", comment: "FILE_ERROR")
-        }
-    }
-}
-
 /// This type handles the storage for `TUSClient`
 /// It makes sure that files (that are to be uploaded) are properly stored, together with their metaData.
-/// Underwater it uses `FileManager.default`.
+/// TusMetaProvider determines what is used under the hood (FileSystem or MMKV)
+@available(iOS 14.0, *)
 final class Files {
     
     let storageDirectory: URL
     
+    private let tusMetaProviderType = TusMetaProviderType.MMKVProvider
     private let fileQueue = DispatchQueue(label: "com.tuskit.files")
     private let uploadQueue = DispatchQueue(label: "com.tuskit.uploadqueue")
-
     
-    private let metadataFileName = "metadata.plist"
-    
-    private let uploadQueueFileName = "upload_queue.plist"
-    
+    private var tusMetaProvider: TusMetaProvider? = nil
+            
     /// Pass a directory to store the local cache in.
     /// - Parameter storageDirectory: Leave nil for the documents dir. Pass a relative path for a dir inside the documents dir. Pass an absolute path for storing files there.
     /// - Throws: File related errors when it can't make a directory at the designated path.
@@ -61,7 +42,7 @@ final class Files {
         }
         
         guard let storageDirectory = storageDirectory else {
-            self.storageDirectory = type(of: self).documentsDirectory.appendingPathComponent("TUS")
+            self.storageDirectory = FileUtils.DocumentsDirectory.appendingPathComponent("TUS")
             return
         }
         
@@ -71,40 +52,32 @@ final class Files {
         let dir = removeLeadingSlash(url: storageDirectory)
 
         if isRelativePath {
-            self.storageDirectory = type(of: self).documentsDirectory.appendingPathComponent(dir)
+            self.storageDirectory = FileUtils.DocumentsDirectory.appendingPathComponent(dir)
         } else {
             if let url = URL(string: dir) {
                 self.storageDirectory = url
             } else {
                 assertionFailure("Can't recreate URL")
-                self.storageDirectory = type(of: self).documentsDirectory.appendingPathComponent("TUS")
+                self.storageDirectory = FileUtils.DocumentsDirectory.appendingPathComponent("TUS")
             }
         }
         
-        try makeDirectoryIfNeeded(nil)
-    }
-    
-    static private var documentsDirectory: URL {
-        return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        self.tusMetaProvider = TusMetaProviderFactory.Create(self.tusMetaProviderType, storageDirectory: self.storageDirectory)!
+        
+        try self.tusMetaProvider?.migrateData()
+        
+        try FileUtils.MakeDirectoryIfNeeded(storageDirectory: self.storageDirectory, nil)
     }
     
     func printFileDirContents(url: URL) throws {
-        let contents = try self.contentsOfDirectory(directory: url)
+        let contents = try FileUtils.ContentsOfDirectory(directory: url)
         print(contents)
     }
     
     /// UploadQueue cannot exist in memory because it will need to be read from the background upload side of things which won't have access to TUSClient memory
     /// So load it from file every time you need to access it as well as write it back to disk every time you update the UploadQueue
     func loadUploadQueue() throws -> UploadQueue {
-        let decoder = PropertyListDecoder()
-        let uploadQueuePath = self.storageDirectory.appendingPathComponent(self.uploadQueueFileName)
-        if let data = try? Data(contentsOf: uploadQueuePath) {
-            guard let uploadQueue = try? decoder.decode(UploadQueue.self, from: data) else {
-                return UploadQueue()
-            }
-            return uploadQueue
-        }
-        return UploadQueue()
+        return try self.tusMetaProvider!.loadUploadQueue()
     }
     
     /// This needs to exist here so we can use the uploadQueue.sync
@@ -124,9 +97,7 @@ final class Files {
     func addFileToUploadManifest(_ uploadManifestId: String, uuid: UUID) {
         do {
             try uploadQueue.sync {
-                let uploadManifestQueue = try self.loadUploadQueue()
-                uploadManifestQueue.enqueue(uploadManifestId: uploadManifestId, uuid: uuid)
-                try self.encodeAndStoreUploadQueue(uploadManifestQueue)
+                self.tusMetaProvider!.addFileToUploadManifest(uploadManifestId, uuid)
             }
         } catch let error {
             print(error)
@@ -144,64 +115,10 @@ final class Files {
     /// - Returns: An array of UploadMetadata types
     func loadAllMetadata(_ filterOnUuids: [String]?) throws -> [UploadMetadata] {
         try fileQueue.sync {
-
-            let uuidDirs = try self.contentsOfDirectory(directory: storageDirectory).filter({  uuidDir in
-                if (uuidDir.lastPathComponent == uploadQueueFileName) {
-                    return false
-                }
-                if filterOnUuids == nil {
-                    return true
-                }
-                return filterOnUuids!.contains(where: { uuid in
-                    return uuid == uuidDir.lastPathComponent
-                })
-            })
-            
-            // if you want to filter the directory contents you can do like this:
-            let decoder = PropertyListDecoder()
-            
-            let metaData: [UploadMetadata] = try uuidDirs.compactMap { uuidDir in
-                let uuidDirContents = try contentsOfDirectory(directory: uuidDir)
-                let metaDataUrls = uuidDirContents.filter{ $0.pathExtension == "plist" }
-                if(metaDataUrls.isEmpty) {
-                    try FileManager.default.removeItem(at: uuidDir)
-                    throw FilesError.metaDataFileNotFound(uuid: uuidDir.lastPathComponent)
-                }
-                let metaDataUrl = metaDataUrls[0]
-                if let data = try? Data(contentsOf: metaDataUrl) {
-                    let metaData = try? decoder.decode(UploadMetadata.self, from: data)
-                    
-                    // The documentsDirectory can change between restarts (at least during testing). So we update the filePath to match the existing plist again. To avoid getting an out of sync situation where the filePath still points to a dir in a different directory than the plist.
-                    // (The plist and file to upload should always be in the same dir together).
-                    metaData?.fileDir = metaDataUrl.deletingLastPathComponent()
-                    
-                    return metaData
-                }
-                
-                // Improvement: Handle error when it can't be decoded?
-                return nil
-            }
-            
-            return metaData
+            try self.tusMetaProvider!.loadAllMetadata(filterOnUuids)
         }
     }
     
-    /// Get file size from file on disk
-    /// - Parameter filePath: The path to the file
-    /// - Returns: The size of the file
-    @discardableResult
-    func getFileSize(filePath: URL) throws -> Int {
-        let size = try filePath.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? Data(contentsOf: filePath).count
-        
-        guard size > 0 else {
-            throw TUSClientError.fileSizeUnknown
-        }
-        
-        return size
-    }
-    
-    @available(iOS 13.4, *)
-    @discardableResult
     func truncateChunk(metaData: UploadMetadata, offset: Int) throws -> Void {
         
         // File paths
@@ -236,39 +153,9 @@ final class Files {
     /// - Parameter id: The unique identifier for the data. Will be used as a filename.
     /// - Throws: Any error related to file handling.
     /// - Returns:The URL of the new directory where chunked files live
-    @available(iOS 13.4, *)
     @discardableResult
     func copyAndChunk(from location: URL, id: UUID, chunkSize: Int) throws -> URL {
-        try makeDirectoryIfNeeded(id)
-        
-        let fileHandle = try FileHandle(forReadingFrom: location)
-        defer {
-            fileHandle.closeFile()
-        }
-        
-        // We don't use lastPathComponent (filename) because then you can't add the same file.
-        // With a unique name, you can upload the same file twice if you want.
-        let uuidDir = storageDirectory.appendingPathComponent(id.uuidString)
-        
-        let fileSize = try getFileSize(filePath: location)
-        var currentSize = 0
-        var chunk = 0
-        var range = 0..<min(chunkSize == -1 ? fileSize : chunkSize, fileSize)
-        while (range.upperBound <= fileSize && range.upperBound != range.lowerBound) {
-            let fileName = "\(chunk).\(location.pathExtension)"
-            let chunkPathInUuidDir = uuidDir.appendingPathComponent(fileName)
-            
-            try fileHandle.seek(toOffset: UInt64(range.startIndex))
-            let data = fileHandle.readData(ofLength: range.count)
-            //print("Writing chunk \(chunk) to \(chunkPathInUuidDir.absoluteString)")
-            //print("Containing data \(range.lowerBound) - \(range.upperBound)")
-            //print("File handle offset: \(try fileHandle.offset())")
-            try data.write(to: chunkPathInUuidDir, options: .atomic)
-            range = range.upperBound..<min(range.upperBound + (chunkSize == -1 ? fileSize : chunkSize), fileSize)
-            chunk += 1
-        }
-        
-        return uuidDir
+        try FileUtils.CopyAndChunk(storageDirectory: self.storageDirectory, from: location, id: id, chunkSize: chunkSize)
     }
     
     /// Removes metadata and its related file from disk
@@ -276,18 +163,14 @@ final class Files {
     /// - Parameter updateManifest: Defaults to true, but if false will not update manifest (useful if removing all files for a manifest)
     /// - Throws: Any error from FileManager when removing a file.
     func removeFile(_ metaData: UploadMetadata, _ updateManifest: Bool = true) throws {
-        let fileDir = metaData.fileDir
         
         try fileQueue.sync {
-            try FileManager.default.removeItem(at: fileDir)
+            try self.tusMetaProvider?.removeFile(metaData)
         }
         
-        try uploadQueue.sync {
-            let uploadManifestId = metaData.context?[UPLOAD_MANIFEST_METADATA_KEY]
-            if(uploadManifestId != nil) {
-                let uploadManifestQueue = try self.loadUploadQueue()
-                uploadManifestQueue.remove(uploadManifestId: uploadManifestId!, uuid: metaData.id)
-                try self.encodeAndStoreUploadQueue(uploadManifestQueue)
+        if(updateManifest) {
+            try uploadQueue.sync {
+                try self.tusMetaProvider?.removeFileFromManifest(metaData)
             }
         }
     }
@@ -323,21 +206,10 @@ final class Files {
     /// The reason to use this method is persistence between runs. E.g. Between app launches or background threads.
     /// - Parameter metaData: The metadata of a file to store.
     /// - Throws: Any error related to file handling
-    /// - Returns: The URL of the location where the metadata is stored.
     @discardableResult
-    func encodeAndStore(metaData: UploadMetadata) throws -> URL {
+    func encodeAndStore(metaData: UploadMetadata) throws -> Void {
         try fileQueue.sync {
-            guard FileManager.default.fileExists(atPath: metaData.fileDir.path) else {
-                // Could not find the directory that's related to this metadata.
-                throw FilesError.uuidDirectoryNotFound(uuid: metaData.id.uuidString)
-            }
-            
-            let targetLocation = metaData.fileDir.appendingPathComponent(metadataFileName)
-            
-            let encoder = PropertyListEncoder()
-            let encodedData = try encoder.encode(metaData)
-            try encodedData.write(to: targetLocation, options: .atomic)
-            return targetLocation
+            try self.tusMetaProvider?.encodeAndStore(metaData)
         }
     }
     
@@ -345,13 +217,8 @@ final class Files {
     /// The reason to use this method is persistence between runs. E.g. Between app launches or background threads.
     /// - Parameter uploadQueue: The upload queue to store.
     /// - Throws: Any error related to file handling
-    @discardableResult
     func encodeAndStoreUploadQueue(_ queueToEncode: UploadQueue) throws {
-        let uploadQueuePath =  storageDirectory.appendingPathComponent(uploadQueueFileName)
-       
-        let encoder = PropertyListEncoder()
-        let encodedData = try encoder.encode(queueToEncode)
-        try encodedData.write(to: uploadQueuePath, options: .atomic)
+        try self.tusMetaProvider?.encodeAndStoreUploadQueue(queueToEncode)
     }
     
     /// Load metadata from store and find matching one by id
@@ -362,35 +229,15 @@ final class Files {
             metaData.id == id
         })
     }
-    
-    func makeDirectoryIfNeeded(_ uuid: UUID?) throws {
-        let doesExist = FileManager.default.fileExists(atPath: storageDirectory.path, isDirectory: nil)
-        
-        if !doesExist {
-            try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
-        }
-        
-        if (uuid != nil) {
-            let pathWithUuid = storageDirectory.appendingPathComponent(uuid!.uuidString)
-            let doesExist = FileManager.default.fileExists(atPath: pathWithUuid.absoluteString, isDirectory: nil)
-            if !doesExist {
-                try FileManager.default.createDirectory(at: pathWithUuid, withIntermediateDirectories: true)
-            }
-        }
-    }
 
     func getFilesToUploadCount() -> Int {
         do {
-            let directoryContents = try contentsOfDirectory(directory: storageDirectory)
+            let directoryContents = try FileUtils.ContentsOfDirectory(directory: storageDirectory)
             return directoryContents.count
         }
         catch {
             return 0
         }
-    }
-    
-    func contentsOfDirectory(directory: URL) throws -> [URL] {
-        return try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
     }
     
     /// Get latest authorization token from Keychain and update it in file metadata

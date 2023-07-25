@@ -1,5 +1,6 @@
 import XCTest
 import TUSKit // ⚠️ No testable import. Make sure we test the public api here, and not against internals. Please look at TUSClientInternalTests if you want a testable import version.
+@available(iOS 14.0, *)
 final class TUSClient_UploadingTests: XCTestCase {
     
     var client: TUSClient!

@@ -30,6 +30,7 @@ func clearDirectory(dir: URL) {
     }
 }
 
+@available(iOS 14.0, *)
 func makeClient(storagePath: URL?) -> TUSClient {
     let liveDemoPath = URL(string: "https://tusd.tusdemo.net/files")!
     

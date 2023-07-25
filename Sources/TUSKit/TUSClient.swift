@@ -31,7 +31,7 @@ let PROJECT_ID_KEY = "project_id"
 
 /// The TUSKit client.
 /// Please refer to the Readme.md on how to use this type.
-@available(iOS 13.4, macOS 10.13, *)
+@available(iOS 14.0, macOS 10.13, *)
 public final class TUSClient: NSObject {
     
     // MARK: - Public Properties
@@ -981,6 +981,7 @@ public final class TUSClient: NSObject {
 
 // MARK: - URLSessionTaskDelegate
 /// The app will instantiate TUSClient to receive the processed events
+@available(iOS 14.0, *)
 extension TUSClient: URLSessionTaskDelegate {
     
     public func urlSession(_ session: URLSession, taskIsWaitingForConnectivity task: URLSessionTask) {
@@ -1064,6 +1065,7 @@ extension TUSClient: URLSessionTaskDelegate {
 }
 
 // MARK: - URLSessionDelegate
+@available(iOS 14.0, *)
 extension TUSClient: URLSessionDelegate {
     /// Called when all running upload tasks have finished and the app is in the background so we can invoke completion handler
     public func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
