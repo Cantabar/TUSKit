@@ -547,6 +547,11 @@ public final class TUSClient: NSObject {
                 if (metaDataItems.count == 0) && processFailedItemsIfEmpty == true {
                     metaDataItems += failedQueue
                 }
+                // Fail-safe to make sure queue doesn't get stuck if there are items to upload
+                // ideally shouldn't ever occur but software is tough
+                if(metaDataItems.count == 0 && metaDataItemsUnfiltered.count > 0) {
+                  metaDataItems = metaDataItemsUnfiltered
+                }
             } else {
                 metaDataItems = metaDataItemsUnfiltered.filter({ metaData in
                     if metaData.errorCount > self.retryCount {
